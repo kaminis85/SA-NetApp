@@ -207,7 +207,7 @@
       loop_control:
         label: "{{ item.node_name }}"
 
-    - name: Create the in-band management broadcast domain
+    - name: Create Management Broadcast Domain
       netapp.ontap.na_ontap_broadcast_domain:
         state: present
         name: "{{ item.name }}"
@@ -224,7 +224,7 @@
       loop_control:
         label: "{{ item.role }} {{ item.name }} MTU {{ item.mtu }}"
 
-    - name: Create the NFS broadcast domain
+    - name: Create NFS broadcast domain ports with Jumbo frames
       netapp.ontap.na_ontap_broadcast_domain:
         state: present
         name: "{{ item.name }}"
@@ -241,7 +241,7 @@
       loop_control:
         label: "{{ item.protocol }} {{ item.name }} MTU {{ item.mtu }}"
 
-    - name: Create the iSCSI broadcast domains
+    - name: Create iSCSI broadcast domain ports with Jumbo frames
       netapp.ontap.na_ontap_broadcast_domain:
         state: present
         name: "{{ item.name }}"
@@ -291,7 +291,7 @@
       when: port_plan | default([]) | length == 0
 
     # broadcast_domain and ipspace are applied only when this module uses REST.
-    - name: Create the in-band management VLAN
+    - name: Create the management VLAN and add it to the management broadcast domain
       netapp.ontap.na_ontap_net_vlan:
         state: present
         node: "{{ item.0.node_name }}"
@@ -311,7 +311,7 @@
       loop_control:
         label: "{{ item.0.node_name }}/{{ ifgrp_name_normalized }}-{{ item.1.id }} {{ item.1.role }}"
 
-    - name: Create the NFS VLAN
+    - name: Create the NFS VLANs and add them to the NFS broadcast domains
       netapp.ontap.na_ontap_net_vlan:
         state: present
         node: "{{ item.0.node_name }}"
@@ -331,7 +331,7 @@
       loop_control:
         label: "{{ item.0.node_name }}/{{ ifgrp_name_normalized }}-{{ item.1.id }} {{ item.1.protocol }}"
 
-    - name: Create the iSCSI VLANs
+    - name: Create the iSCSI VLANs and add them to the iSCSI broadcast domains
       netapp.ontap.na_ontap_net_vlan:
         state: present
         node: "{{ item.0.node_name }}"
