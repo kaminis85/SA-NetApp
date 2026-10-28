@@ -10,7 +10,7 @@ description: >-
 
 instructions:
   source:
-    store: Stack-Automation-NetApp
+    store: SA-NetApp
     path: instructions/ontap-storage-setup.md
 
 metadata:
@@ -313,7 +313,7 @@ grains:
     when: '{% if .inputs.cluster_name != "" and .inputs.cluster_location != "" %}true{% else %}false{% endif %}'
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/update_cluster_location.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -328,7 +328,7 @@ grains:
     kind: ansible
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/ensure_cluster_mgmt_auto_revert.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -341,7 +341,7 @@ grains:
     kind: ansible
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/delete_broadcast_domains.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -355,7 +355,7 @@ grains:
     when: '{% if .inputs.node_specs != "" and .inputs.node_specs != "[]" %}true{% else %}false{% endif %}'
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_sp_network.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -370,7 +370,7 @@ grains:
     when: '{% if .inputs.node_specs != "" and .inputs.node_specs != "[]" %}true{% else %}false{% endif %}'
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/discover_disk_class.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -388,7 +388,7 @@ grains:
     depends-on: discover_disk_class
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/create_data_aggregates.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -405,7 +405,7 @@ grains:
     kind: ansible
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/zero_spare_disks.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -418,7 +418,7 @@ grains:
     kind: ansible
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/ensure_cluster_ha.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -432,7 +432,7 @@ grains:
     when: '{% if .inputs.node_specs != "" and .inputs.node_specs != "[]" %}true{% else %}false{% endif %}'
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/disable_flow_control.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -446,7 +446,7 @@ grains:
     kind: ansible
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/enable_cdp.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -459,7 +459,7 @@ grains:
     kind: ansible
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/enable_lldp.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -473,7 +473,7 @@ grains:
     when: '{% if .inputs.dns_domain_name != "" and .inputs.dns_servers != "" %}true{% else %}false{% endif %}'
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_dns.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -489,7 +489,7 @@ grains:
     when: '{% if .inputs.ntp_servers != "" %}true{% else %}false{% endif %}'
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_ntp.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -503,7 +503,7 @@ grains:
     kind: ansible
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/enable_storage_failover.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -517,7 +517,7 @@ grains:
     when: '{% if .inputs.cluster_name != "" and .inputs.time_zone != "" %}true{% else %}false{% endif %}'
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/set_timezone.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -534,7 +534,7 @@ grains:
     when: '{% if .inputs.autosupport_mail_hosts != "" and .inputs.autosupport_from_address != "" and .inputs.autosupport_to_addresses != "" %}true{% else %}false{% endif %}'
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_autosupport.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -552,7 +552,7 @@ grains:
     when: '{% if .inputs.legacy_license_keys != "" or .inputs.nlf_license_content != "" %}true{% else %}false{% endif %}'
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/add_licenses.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -567,7 +567,7 @@ grains:
     kind: ansible
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_fips.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -582,7 +582,7 @@ grains:
     when: '{% if .inputs.snmp_contact != "" or .inputs.snmp_location != "" or .inputs.snmp_v3_user != "" %}true{% else %}{% if .inputs.is_fips_enabled != "true" %}{% if .inputs.snmp_community != "" or .inputs.traphost_ip != "" %}true{% else %}false{% endif %}{% else %}false{% endif %}{% endif %}'
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_snmp.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -608,7 +608,7 @@ grains:
     when: '{% if .inputs.cluster_login_banner != "" %}true{% else %}false{% endif %}'
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/create_login_banner.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -624,7 +624,7 @@ grains:
     depends-on: delete_broadcast_domains
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_ifgrp.yaml
       agent:
         name: '{{ .inputs.agent }}'
