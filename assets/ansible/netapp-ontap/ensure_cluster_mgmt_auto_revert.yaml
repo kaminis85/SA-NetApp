@@ -1,0 +1,59 @@
+---
+- name: Ensure auto-revert on the cluster management interface
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+
+    - name: Get IP interfaces
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - network/ip/interfaces
+        fields:
+          - name
+          - scope
+          - service_policy
+          - location.failover
+      register: interface_info
+      no_log: true
+
+    - name: Select cluster management interfaces
+      ansible.builtin.set_fact:
+        cluster_mgmt_interfaces: "{{ cluster_mgmt_interfaces | default([]) + [item.name] }}"
+      vars:
+        policy_name: "{{ (item.service_policy | default({})).name | default('') }}"
+        failover_policy: "{{ (item.location | default({})).failover | default('') }}"
+      when:
+        - item.scope | default('') == 'cluster'
+        - policy_name == 'default-management'
+        - failover_policy == 'broadcast_domain_only'
+      loop: "{{ interface_info.ontap_info.network_ip_interfaces.records | default([]) }}"
+      loop_control:
+        label: "{{ item.name | default('unnamed interface') }}"
+
+    - name: Validate the cluster management interface
+      ansible.builtin.assert:
+        that:
+          - cluster_mgmt_interfaces | default([]) | length > 0
+        fail_msg: The cluster did not return a cluster management interface.
+
+    - name: Ensure auto-revert is set for the cluster management interface
+      netapp.ontap.na_ontap_interface:
+        is_auto_revert: true
+        interface_name: "{{ item }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      loop: "{{ cluster_mgmt_interfaces | unique }}"
+      loop_control:
+        label: "{{ item }}"
