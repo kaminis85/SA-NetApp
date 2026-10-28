@@ -1,0 +1,352 @@
+---
+# Nodes and data ports come from the node configuration table.
+# The VLAN parent is the interface group name.
+# Each network below is one entry from the FlexPod VLAN list:
+#   in-band management has no storage protocol and no fabric, MTU 1500
+#   NFS is storage protocol NFS and has no fabric, MTU 9000
+#   iSCSI-A is storage protocol iSCSI, fabric A, MTU 9000
+#   iSCSI-B is storage protocol iSCSI, fabric B, MTU 9000
+# Fabric is not sent to ONTAP. It distinguishes the two iSCSI VLANs.
+# A network is skipped when its VLAN name or VLAN ID is blank.
+# The VLAN name is also the broadcast domain name.
+- name: Configure ONTAP IPspace, broadcast domains, and VLANs
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ipspace_name_normalized: "{{ ipspace_name | default('') | string | trim }}"
+    ifgrp_name_normalized: "{{ ifgrp_name | default('') | string | trim | lower }}"
+    node_rows: >-
+      {{
+        [] if (node_specs | default('[]') | string | trim) in ['', '[]']
+        else (node_specs | from_json if node_specs is string else node_specs)
+      }}
+    network_inputs:
+      - role: In-band management
+        protocol: management
+        fabric: ""
+        name: "{{ ib_mgmt_vlan_name | default('') | string | trim }}"
+        id: "{{ ib_mgmt_vlan_id | default('') | string | trim }}"
+        mtu: 1500
+      - role: NFS
+        protocol: NFS
+        fabric: ""
+        name: "{{ nfs_vlan_name | default('') | string | trim }}"
+        id: "{{ nfs_vlan_id | default('') | string | trim }}"
+        mtu: 9000
+      - role: iSCSI-A
+        protocol: iSCSI
+        fabric: A
+        name: "{{ iscsi_a_vlan_name | default('') | string | trim }}"
+        id: "{{ iscsi_a_vlan_id | default('') | string | trim }}"
+        mtu: 9000
+      - role: iSCSI-B
+        protocol: iSCSI
+        fabric: B
+        name: "{{ iscsi_b_vlan_name | default('') | string | trim }}"
+        id: "{{ iscsi_b_vlan_id | default('') | string | trim }}"
+        mtu: 9000
+
+  tasks:
+
+    - name: Skip a network when its VLAN name or VLAN ID is blank
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.role }} is skipped because its VLAN name or VLAN ID is blank.
+      loop: "{{ network_inputs }}"
+      when: (item.name | length > 0) != (item.id | length > 0)
+      loop_control:
+        label: "{{ item.role }}"
+
+    - name: Select networks that have both a VLAN name and a VLAN ID
+      ansible.builtin.set_fact:
+        vlan_plan: "{{ network_inputs | selectattr('name') | selectattr('id') | list }}"
+
+    - name: Note that the IPspace name is blank
+      ansible.builtin.debug:
+        msg: >-
+          The IPspace name is blank, so IPspace, broadcast domain, and VLAN
+          creation was skipped.
+      when: ipspace_name_normalized | length == 0
+
+    - name: Stop when the IPspace name is blank
+      ansible.builtin.meta: end_play
+      when: ipspace_name_normalized | length == 0
+
+    - name: Validate the IPspace name
+      ansible.builtin.assert:
+        that:
+          - ipspace_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,63}$')
+          - ipspace_name_normalized | lower not in ['default', 'cluster']
+        fail_msg: >-
+          IPspace name must start with a letter or underscore and contain only
+          letters, numbers, underscores, hyphens, and periods. Default and
+          Cluster already exist and cannot be used here.
+
+    - name: Validate VLAN IDs
+      ansible.builtin.assert:
+        that:
+          - item.id is match('^[1-9][0-9]{0,3}$')
+          - item.id | int <= 4094
+        fail_msg: "{{ item.role }} VLAN ID must be a number from 1 to 4094."
+      loop: "{{ vlan_plan }}"
+      when: vlan_plan | length > 0
+      loop_control:
+        label: "{{ item.role }}"
+
+    - name: Validate VLAN names
+      ansible.builtin.assert:
+        that:
+          - item.name is match('^[A-Za-z_][A-Za-z0-9_.-]{0,63}$')
+          - item.name | lower not in ['default', 'cluster']
+        fail_msg: >-
+          {{ item.role }} VLAN name must start with a letter or underscore and
+          contain only letters, numbers, underscores, hyphens, and periods.
+          Default and Cluster are reserved.
+      loop: "{{ vlan_plan }}"
+      when: vlan_plan | length > 0
+      loop_control:
+        label: "{{ item.role }}"
+
+    - name: Validate that VLAN names are unique
+      ansible.builtin.assert:
+        that:
+          - vlan_plan | map(attribute='name') | map('lower') | unique | list | length == vlan_plan | length
+        fail_msg: >-
+          VLAN names must be unique. Requested names:
+          {{ vlan_plan | map(attribute='name') | join(', ') }}.
+      when: vlan_plan | length > 0
+
+    - name: Validate that VLAN IDs are unique
+      ansible.builtin.assert:
+        that:
+          - vlan_plan | map(attribute='id') | unique | list | length == vlan_plan | length
+        fail_msg: >-
+          VLAN IDs must be unique. Requested IDs:
+          {{ vlan_plan | map(attribute='id') | join(', ') }}.
+      when: vlan_plan | length > 0
+
+    - name: Create the IPspace
+      netapp.ontap.na_ontap_ipspace:
+        state: present
+        name: "{{ ipspace_name_normalized }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+
+    - name: Note that no VLAN was requested
+      ansible.builtin.debug:
+        msg: >-
+          No VLAN has both a name and an ID, so no broadcast domain or VLAN
+          was created.
+      when: vlan_plan | length == 0
+
+    - name: Stop when no VLAN was requested
+      ansible.builtin.meta: end_play
+      when: vlan_plan | length == 0
+
+    - name: Normalize node rows
+      ansible.builtin.set_fact:
+        node_plan: "{{ node_plan | default([]) + [normalized_row] }}"
+      vars:
+        ports_raw: "{{ item.ports | default(item['Data Ports'], true) | default('', true) }}"
+        normalized_row:
+          node_name: "{{ item.node_name | default(item['Node Name'], true) | default('', true) | trim }}"
+          ports: >-
+            {{
+              (
+                ports_raw
+                if ports_raw is not string
+                else ports_raw.split(',') | map('trim') | reject('equalto', '') | list
+              ) | unique | list
+            }}
+      loop: "{{ node_rows }}"
+      loop_control:
+        label: "{{ item.node_name | default(item['Node Name'], true) | default('unnamed row', true) }}"
+
+    - name: Validate node names on rows that list data ports
+      ansible.builtin.assert:
+        that:
+          - item.node_name | length > 0
+        fail_msg: >-
+          Row {{ ansible_loop.index }} lists data ports and needs a node name.
+      loop: "{{ node_plan | default([]) }}"
+      when: item.ports | length > 0
+      loop_control:
+        extended: true
+        label: "{{ item.node_name | default('row ' ~ ansible_loop.index) }}"
+
+    - name: Validate that each node appears once
+      ansible.builtin.assert:
+        that:
+          - node_plan | map(attribute='node_name') | unique | list | length == node_plan | length
+        fail_msg: >-
+          Each node name can appear only once. Requested names:
+          {{ node_plan | map(attribute='node_name') | join(', ') }}.
+      when: node_plan | default([]) | length > 0
+
+    - name: Select nodes that list data ports
+      ansible.builtin.set_fact:
+        port_plan: "{{ port_plan | default([]) + [item] }}"
+      loop: "{{ node_plan | default([]) }}"
+      when: item.ports | length > 0
+      loop_control:
+        label: "{{ item.node_name }}"
+
+    - name: Note nodes that have no data ports
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.node_name }} lists no data ports, so it will not receive
+          these VLANs. VLANs are added to the interface group, which is
+          created only on nodes that list data ports.
+      loop: "{{ node_plan | default([]) }}"
+      when: item.ports | length == 0
+      loop_control:
+        label: "{{ item.node_name }}"
+
+    - name: Create the in-band management broadcast domain
+      netapp.ontap.na_ontap_broadcast_domain:
+        state: present
+        name: "{{ item.name }}"
+        ipspace: "{{ ipspace_name_normalized }}"
+        mtu: "{{ item.mtu | int }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      loop: "{{ vlan_plan }}"
+      when: item.protocol == 'management'
+      loop_control:
+        label: "{{ item.role }} {{ item.name }} MTU {{ item.mtu }}"
+
+    - name: Create the NFS broadcast domain
+      netapp.ontap.na_ontap_broadcast_domain:
+        state: present
+        name: "{{ item.name }}"
+        ipspace: "{{ ipspace_name_normalized }}"
+        mtu: "{{ item.mtu | int }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      loop: "{{ vlan_plan }}"
+      when: item.protocol == 'NFS'
+      loop_control:
+        label: "{{ item.protocol }} {{ item.name }} MTU {{ item.mtu }}"
+
+    - name: Create the iSCSI broadcast domains
+      netapp.ontap.na_ontap_broadcast_domain:
+        state: present
+        name: "{{ item.name }}"
+        ipspace: "{{ ipspace_name_normalized }}"
+        mtu: "{{ item.mtu | int }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      loop: "{{ vlan_plan }}"
+      when: item.protocol == 'iSCSI'
+      loop_control:
+        label: "{{ item.protocol }} fabric {{ item.fabric }} {{ item.name }} MTU {{ item.mtu }}"
+
+    - name: Note that VLAN interfaces were skipped because the interface group name is blank
+      ansible.builtin.debug:
+        msg: >-
+          The interface group name is blank, so the VLAN interfaces were
+          skipped. Broadcast domains were still created for each network that
+          has a VLAN name and VLAN ID.
+      when: ifgrp_name_normalized | length == 0
+
+    - name: Stop when the interface group name is blank
+      ansible.builtin.meta: end_play
+      when: ifgrp_name_normalized | length == 0
+
+    - name: Validate the interface group name
+      ansible.builtin.assert:
+        that:
+          - ifgrp_name_normalized is match('^a(0|[1-9][0-9]{0,2})[a-z]$')
+        fail_msg: >-
+          Interface group name must look like a0a: the letter a, a number from
+          0 to 999 with no leading zeros, and one lowercase letter.
+
+    - name: Note that VLAN interfaces were skipped because no node lists data ports
+      ansible.builtin.debug:
+        msg: >-
+          No node lists data ports, so the VLAN interfaces were skipped.
+          Broadcast domains were still created for each network that has a
+          VLAN name and VLAN ID.
+      when: port_plan | default([]) | length == 0
+
+    - name: Stop when no node lists data ports
+      ansible.builtin.meta: end_play
+      when: port_plan | default([]) | length == 0
+
+    # broadcast_domain and ipspace are applied only when this module uses REST.
+    - name: Create the in-band management VLAN
+      netapp.ontap.na_ontap_net_vlan:
+        state: present
+        node: "{{ item.0.node_name }}"
+        parent_interface: "{{ ifgrp_name_normalized }}"
+        vlanid: "{{ item.1.id | int }}"
+        broadcast_domain: "{{ item.1.name }}"
+        ipspace: "{{ ipspace_name_normalized }}"
+        enabled: true
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      loop: "{{ port_plan | product(vlan_plan) | list }}"
+      when: item.1.protocol == 'management'
+      loop_control:
+        label: "{{ item.0.node_name }}/{{ ifgrp_name_normalized }}-{{ item.1.id }} {{ item.1.role }}"
+
+    - name: Create the NFS VLAN
+      netapp.ontap.na_ontap_net_vlan:
+        state: present
+        node: "{{ item.0.node_name }}"
+        parent_interface: "{{ ifgrp_name_normalized }}"
+        vlanid: "{{ item.1.id | int }}"
+        broadcast_domain: "{{ item.1.name }}"
+        ipspace: "{{ ipspace_name_normalized }}"
+        enabled: true
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      loop: "{{ port_plan | product(vlan_plan) | list }}"
+      when: item.1.protocol == 'NFS'
+      loop_control:
+        label: "{{ item.0.node_name }}/{{ ifgrp_name_normalized }}-{{ item.1.id }} {{ item.1.protocol }}"
+
+    - name: Create the iSCSI VLANs
+      netapp.ontap.na_ontap_net_vlan:
+        state: present
+        node: "{{ item.0.node_name }}"
+        parent_interface: "{{ ifgrp_name_normalized }}"
+        vlanid: "{{ item.1.id | int }}"
+        broadcast_domain: "{{ item.1.name }}"
+        ipspace: "{{ ipspace_name_normalized }}"
+        enabled: true
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      loop: "{{ port_plan | product(vlan_plan) | list }}"
+      when: item.1.protocol == 'iSCSI'
+      loop_control:
+        label: "{{ item.0.node_name }}/{{ ifgrp_name_normalized }}-{{ item.1.id }} {{ item.1.protocol }} fabric {{ item.1.fabric }}"

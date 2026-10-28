@@ -6,8 +6,10 @@ description: >-
   SSL FIPS is set on every launch and defaults to false.
   The data interface group defaults to a0a and is created when node rows
   list data ports. Clear that name to skip it.
-  An IPspace is created when its name is filled in. Each VLAN name and ID
-  adds a broadcast domain and a VLAN on that interface group.
+  An IPspace is created when its name is filled in. Leave that name blank
+  to skip IPspace, broadcast domain, and VLAN creation. The interface group
+  runs from its own name and the node data ports. Each network is skipped
+  when its VLAN name or VLAN ID is blank.
   Fibre Channel is not included.
 
 instructions:
@@ -90,7 +92,7 @@ customization:
       configure_ifgrp:
         type: grain
         position: {x: 80, y: 1040}
-      configure_data_network:
+      configure_ontap_network:
         type: grain
         position: {x: 360, y: 1040}
   launch-form:
@@ -156,20 +158,12 @@ customization:
               - name: ifgrp_name
               - name: ifgrp_mode
               - name: ipspace_name
-          - name: In-band management VLAN
-            inputs:
               - name: ib_mgmt_vlan_name
               - name: ib_mgmt_vlan_id
-          - name: NFS VLAN
-            inputs:
               - name: nfs_vlan_name
               - name: nfs_vlan_id
-          - name: iSCSI-A VLAN
-            inputs:
               - name: iscsi_a_vlan_name
               - name: iscsi_a_vlan_id
-          - name: iSCSI-B VLAN
-            inputs:
               - name: iscsi_b_vlan_name
               - name: iscsi_b_vlan_id
 
@@ -320,7 +314,9 @@ inputs:
       with no leading zeros, and one lowercase letter. That node's data ports
       are added to the group. Traffic is distributed by port, and the group
       MTU is set to 9000. In-band management, NFS, and iSCSI VLANs are created
-      on this interface group. Clear this field to skip the interface group.
+      on this interface group when those VLANs are filled in. This task uses
+      the interface group name and the node data ports. Clear this field to
+      skip the interface group.
   ifgrp_mode:
     type: string
     default: multimode_lacp
@@ -336,61 +332,61 @@ inputs:
     description: >-
       IPspace for the in-band management, NFS, and iSCSI broadcast domains and
       VLANs. Example: AA02-OCP. The name starts with a letter or underscore.
-      Leave this and every VLAN name and ID blank to skip IPspace, broadcast
-      domain, and VLAN creation.
+      Leave this blank to skip IPspace, broadcast domain, and VLAN creation.
+      The interface group task does not read this field.
   ib_mgmt_vlan_name:
     type: string
     default: ""
     description: >-
       In-band management VLAN name. This name is also the broadcast domain
       name. Example: OCP-BareMetal-MGMT. The broadcast domain MTU is 1500.
-      Enter the VLAN ID as well. Leave both blank to skip in-band management.
+      Leave this or the VLAN ID blank to skip in-band management.
   ib_mgmt_vlan_id:
     type: string
     default: ""
     description: >-
       In-band management VLAN ID, from 1 to 4094. Example: 1022. ONTAP names
-      the interface <interface group>-<VLAN ID>, for example a0a-1022. Enter
-      the VLAN name as well. Leave both blank to skip in-band management.
+      the interface <interface group>-<VLAN ID>, for example a0a-1022. Leave
+      this or the VLAN name blank to skip in-band management.
   nfs_vlan_name:
     type: string
     default: ""
     description: >-
-      NFS VLAN name. This name is also the broadcast domain name. Example:
-      OCP-NFS. The broadcast domain MTU is 9000. Enter the VLAN ID as well.
-      Leave both blank to skip NFS.
+      NFS VLAN name. Storage protocol NFS. This name is also the broadcast
+      domain name. Example: OCP-NFS. The broadcast domain MTU is 9000. Leave
+      this or the VLAN ID blank to skip NFS.
   nfs_vlan_id:
     type: string
     default: ""
     description: >-
-      NFS VLAN ID, from 1 to 4094. Example: 3052. Enter the VLAN name as well.
-      Leave both blank to skip NFS.
+      NFS VLAN ID, from 1 to 4094. Example: 3052. Leave this or the VLAN name
+      blank to skip NFS.
   iscsi_a_vlan_name:
     type: string
     default: ""
     description: >-
-      iSCSI-A VLAN name. This name is also the broadcast domain name. Example:
-      OCP-iSCSI-A. The broadcast domain MTU is 9000. Enter the VLAN ID as well.
-      Leave both blank to skip iSCSI-A. iSCSI-B is a separate VLAN.
+      iSCSI VLAN name for fabric A. Storage protocol iSCSI. This name is also
+      the broadcast domain name. Example: OCP-iSCSI-A. The broadcast domain
+      MTU is 9000. Leave this or the VLAN ID blank to skip fabric A.
   iscsi_a_vlan_id:
     type: string
     default: ""
     description: >-
-      iSCSI-A VLAN ID, from 1 to 4094. Example: 3012. Enter the VLAN name as
-      well. Leave both blank to skip iSCSI-A.
+      iSCSI VLAN ID for fabric A, from 1 to 4094. Example: 3012. Leave this or
+      the VLAN name blank to skip fabric A.
   iscsi_b_vlan_name:
     type: string
     default: ""
     description: >-
-      iSCSI-B VLAN name. This name is also the broadcast domain name. Example:
-      OCP-iSCSI-B. The broadcast domain MTU is 9000. Enter the VLAN ID as well.
-      Leave both blank to skip iSCSI-B. iSCSI-A is a separate VLAN.
+      iSCSI VLAN name for fabric B. Storage protocol iSCSI. This name is also
+      the broadcast domain name. Example: OCP-iSCSI-B. The broadcast domain
+      MTU is 9000. Leave this or the VLAN ID blank to skip fabric B.
   iscsi_b_vlan_id:
     type: string
     default: ""
     description: >-
-      iSCSI-B VLAN ID, from 1 to 4094. Example: 3022. Enter the VLAN name as
-      well. Leave both blank to skip iSCSI-B.
+      iSCSI VLAN ID for fabric B, from 1 to 4094. Example: 3022. Leave this or
+      the VLAN name blank to skip fabric B.
 
 grains:
   update_cluster_location:
@@ -721,14 +717,14 @@ grains:
         - ifgrp_name: '{{ .inputs.ifgrp_name }}'
         - ifgrp_mode: '{{ .inputs.ifgrp_mode }}'
 
-  configure_data_network:
+  configure_ontap_network:
     kind: ansible
-    when: '{% if .inputs.ipspace_name != "" or .inputs.ib_mgmt_vlan_name != "" or .inputs.ib_mgmt_vlan_id != "" or .inputs.nfs_vlan_name != "" or .inputs.nfs_vlan_id != "" or .inputs.iscsi_a_vlan_name != "" or .inputs.iscsi_a_vlan_id != "" or .inputs.iscsi_b_vlan_name != "" or .inputs.iscsi_b_vlan_id != "" %}true{% else %}false{% endif %}'
+    when: '{% if .inputs.ipspace_name != "" %}true{% else %}false{% endif %}'
     depends-on: configure_ifgrp
     spec:
       source:
         store: SA-NetApp
-        path: assets/ansible/netapp-ontap/configure_data_network.yaml
+        path: assets/ansible/netapp-ontap/configure_ontap_network.yaml
       agent:
         name: '{{ .inputs.agent }}'
       inputs:
