@@ -6,6 +6,8 @@ description: >-
   SSL FIPS is set on every launch and defaults to false.
   The data interface group defaults to a0a and is created when node rows
   list data ports. Clear that name to skip it.
+  An IPspace is created when its name is filled in. Each VLAN name and ID
+  adds a broadcast domain and a VLAN on that interface group.
   Fibre Channel is not included.
 
 instructions:
@@ -88,6 +90,9 @@ customization:
       configure_ifgrp:
         type: grain
         position: {x: 80, y: 1040}
+      configure_data_network:
+        type: grain
+        position: {x: 360, y: 1040}
   launch-form:
     categories:
       - name: ONTAP Storage Setup
@@ -150,6 +155,23 @@ customization:
             inputs:
               - name: ifgrp_name
               - name: ifgrp_mode
+              - name: ipspace_name
+          - name: In-band management VLAN
+            inputs:
+              - name: ib_mgmt_vlan_name
+              - name: ib_mgmt_vlan_id
+          - name: NFS VLAN
+            inputs:
+              - name: nfs_vlan_name
+              - name: nfs_vlan_id
+          - name: iSCSI-A VLAN
+            inputs:
+              - name: iscsi_a_vlan_name
+              - name: iscsi_a_vlan_id
+          - name: iSCSI-B VLAN
+            inputs:
+              - name: iscsi_b_vlan_name
+              - name: iscsi_b_vlan_id
 
 inputs:
   agent:
@@ -182,9 +204,10 @@ inputs:
     description: >-
       One row per node. The node name is entered once and applies to that node's
       service processor, data ports, interface group, and one aggregate. Data
-      Ports is a comma-separated list, for example e5a,e5b. To skip
-      service-processor, aggregate, interface-group, and data-port tasks, delete
-      every row. A blank row keeps Finish disabled.
+      Ports is a comma-separated list, for example e5a,e5b. In-band management,
+      NFS, and iSCSI VLANs are created on the interface group of each node that
+      lists data ports. To skip service-processor, aggregate, interface-group,
+      and data-port tasks, delete every row. A blank row keeps Finish disabled.
   dns_domain_name:
     type: string
     default: ""
@@ -296,7 +319,8 @@ inputs:
       a0a. Use a name such as a0a or a0b: the letter a, a number from 0 to 999
       with no leading zeros, and one lowercase letter. That node's data ports
       are added to the group. Traffic is distributed by port, and the group
-      MTU is set to 9000. Clear this field to skip the task.
+      MTU is set to 9000. In-band management, NFS, and iSCSI VLANs are created
+      on this interface group. Clear this field to skip the interface group.
   ifgrp_mode:
     type: string
     default: multimode_lacp
@@ -306,6 +330,67 @@ inputs:
       the member ports with LACP, multimode bundles them without LACP, and
       singlemode keeps one port active and uses the others for failover.
       Applied when the group is created.
+  ipspace_name:
+    type: string
+    default: ""
+    description: >-
+      IPspace for the in-band management, NFS, and iSCSI broadcast domains and
+      VLANs. Example: AA02-OCP. The name starts with a letter or underscore.
+      Leave this and every VLAN name and ID blank to skip IPspace, broadcast
+      domain, and VLAN creation.
+  ib_mgmt_vlan_name:
+    type: string
+    default: ""
+    description: >-
+      In-band management VLAN name. This name is also the broadcast domain
+      name. Example: OCP-BareMetal-MGMT. The broadcast domain MTU is 1500.
+      Enter the VLAN ID as well. Leave both blank to skip in-band management.
+  ib_mgmt_vlan_id:
+    type: string
+    default: ""
+    description: >-
+      In-band management VLAN ID, from 1 to 4094. Example: 1022. ONTAP names
+      the interface <interface group>-<VLAN ID>, for example a0a-1022. Enter
+      the VLAN name as well. Leave both blank to skip in-band management.
+  nfs_vlan_name:
+    type: string
+    default: ""
+    description: >-
+      NFS VLAN name. This name is also the broadcast domain name. Example:
+      OCP-NFS. The broadcast domain MTU is 9000. Enter the VLAN ID as well.
+      Leave both blank to skip NFS.
+  nfs_vlan_id:
+    type: string
+    default: ""
+    description: >-
+      NFS VLAN ID, from 1 to 4094. Example: 3052. Enter the VLAN name as well.
+      Leave both blank to skip NFS.
+  iscsi_a_vlan_name:
+    type: string
+    default: ""
+    description: >-
+      iSCSI-A VLAN name. This name is also the broadcast domain name. Example:
+      OCP-iSCSI-A. The broadcast domain MTU is 9000. Enter the VLAN ID as well.
+      Leave both blank to skip iSCSI-A. iSCSI-B is a separate VLAN.
+  iscsi_a_vlan_id:
+    type: string
+    default: ""
+    description: >-
+      iSCSI-A VLAN ID, from 1 to 4094. Example: 3012. Enter the VLAN name as
+      well. Leave both blank to skip iSCSI-A.
+  iscsi_b_vlan_name:
+    type: string
+    default: ""
+    description: >-
+      iSCSI-B VLAN name. This name is also the broadcast domain name. Example:
+      OCP-iSCSI-B. The broadcast domain MTU is 9000. Enter the VLAN ID as well.
+      Leave both blank to skip iSCSI-B. iSCSI-A is a separate VLAN.
+  iscsi_b_vlan_id:
+    type: string
+    default: ""
+    description: >-
+      iSCSI-B VLAN ID, from 1 to 4094. Example: 3022. Enter the VLAN name as
+      well. Leave both blank to skip iSCSI-B.
 
 grains:
   update_cluster_location:
@@ -635,3 +720,29 @@ grains:
         - node_specs: '{{ .inputs.node_specs }}'
         - ifgrp_name: '{{ .inputs.ifgrp_name }}'
         - ifgrp_mode: '{{ .inputs.ifgrp_mode }}'
+
+  configure_data_network:
+    kind: ansible
+    when: '{% if .inputs.ipspace_name != "" or .inputs.ib_mgmt_vlan_name != "" or .inputs.ib_mgmt_vlan_id != "" or .inputs.nfs_vlan_name != "" or .inputs.nfs_vlan_id != "" or .inputs.iscsi_a_vlan_name != "" or .inputs.iscsi_a_vlan_id != "" or .inputs.iscsi_b_vlan_name != "" or .inputs.iscsi_b_vlan_id != "" %}true{% else %}false{% endif %}'
+    depends-on: configure_ifgrp
+    spec:
+      source:
+        store: SA-NetApp
+        path: assets/ansible/netapp-ontap/configure_data_network.yaml
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+        - ontap_username: '{{ .inputs.ontap_username }}'
+        - ontap_password: '{{ .inputs.ontap_password }}'
+        - node_specs: '{{ .inputs.node_specs }}'
+        - ifgrp_name: '{{ .inputs.ifgrp_name }}'
+        - ipspace_name: '{{ .inputs.ipspace_name }}'
+        - ib_mgmt_vlan_name: '{{ .inputs.ib_mgmt_vlan_name }}'
+        - ib_mgmt_vlan_id: '{{ .inputs.ib_mgmt_vlan_id }}'
+        - nfs_vlan_name: '{{ .inputs.nfs_vlan_name }}'
+        - nfs_vlan_id: '{{ .inputs.nfs_vlan_id }}'
+        - iscsi_a_vlan_name: '{{ .inputs.iscsi_a_vlan_name }}'
+        - iscsi_a_vlan_id: '{{ .inputs.iscsi_a_vlan_id }}'
+        - iscsi_b_vlan_name: '{{ .inputs.iscsi_b_vlan_name }}'
+        - iscsi_b_vlan_id: '{{ .inputs.iscsi_b_vlan_id }}'
