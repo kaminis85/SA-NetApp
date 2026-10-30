@@ -434,28 +434,100 @@
       loop_control:
         label: "{{ item.1 }} on {{ item.0 }}"
 
-    # Load-sharing relationships are a ZAPI operation. REST rejects this relationship type.
-    - name: Create and initialize the load-sharing SnapMirror relationship
-      netapp.ontap.na_ontap_snapmirror:
-        state: present
-        destination_endpoint:
-          path: "{{ svm_name_normalized }}:{{ item }}"
-        source_endpoint:
-          path: "{{ svm_name_normalized }}:{{ root_volume_name }}"
-        initialize: true
-        relationship_state: active
-        relationship_type: load_sharing
-        schedule: "{{ job_name_normalized }}"
+    # The public SnapMirror REST API rejects a load-sharing relationship, and the
+    # ZAPI module needs the netapp-lib package. The private CLI path does neither.
+    - name: Read load-sharing SnapMirror relationships for the SVM root volume
+      netapp.ontap.na_ontap_rest_cli:
+        command: snapmirror
+        verb: GET
+        params:
+          source-path: "{{ svm_name_normalized }}:{{ root_volume_name }}"
+          fields: destination-path,mirror-state,type
         hostname: "{{ ontap_hostname }}"
         username: "{{ ontap_username }}"
         password: "{{ ontap_password }}"
         https: true
         validate_certs: false
-        use_rest: never
-      loop: "{{ lsm_vol_list | default([]) }}"
+      register: lsm_snapmirror_info
+      when: lsm_vol_list | default([]) | length > 0
+
+    - name: Record existing load-sharing destinations
+      ansible.builtin.set_fact:
+        lsm_relationship_rows: "{{ lsm_relationship_rows | default([]) + [row] }}"
+      vars:
+        destination_path: "{{ item['destination-path'] | default(item['destination_path'] | default('')) }}"
+        row:
+          volume: "{{ destination_path.split(':') | last }}"
+          mirror_state: "{{ (item['mirror-state'] | default(item['mirror_state'] | default(''))) | lower }}"
+      loop: "{{ (lsm_snapmirror_info.msg | default({})).records | default([]) }}"
       when: lsm_vol_list | default([]) | length > 0
       loop_control:
+        label: "{{ item['destination-path'] | default(item['destination_path'] | default('unknown destination')) }}"
+
+    - name: Choose load-sharing mirrors that do not have a relationship yet
+      ansible.builtin.set_fact:
+        lsm_missing_volumes: "{{ lsm_vol_list | difference(existing_volumes) }}"
+      vars:
+        existing_volumes: "{{ lsm_relationship_rows | default([]) | map(attribute='volume') | list }}"
+      when: lsm_vol_list | default([]) | length > 0
+
+    - name: Decide whether the load-sharing mirrors need to be initialized
+      ansible.builtin.set_fact:
+        lsm_needs_initialize: "{{ pending_volumes | length > 0 }}"
+      vars:
+        initialized_volumes: >-
+          {{
+            lsm_relationship_rows | default([])
+            | selectattr('mirror_state', 'equalto', 'snapmirrored')
+            | map(attribute='volume')
+            | list
+          }}
+        pending_volumes: "{{ lsm_vol_list | difference(initialized_volumes) }}"
+      when: lsm_vol_list | default([]) | length > 0
+
+    - name: Show the load-sharing SnapMirror plan
+      ansible.builtin.debug:
+        msg: >-
+          Source {{ svm_name_normalized }}:{{ root_volume_name }}.
+          Relationships to create:
+          {{ lsm_missing_volumes | default([]) | join(', ') if (lsm_missing_volumes | default([]) | length > 0) else 'none' }}.
+          Initialize the load-sharing set:
+          {{ 'yes' if (lsm_needs_initialize | default(false) | bool) else 'no' }}.
+      when: lsm_vol_list | default([]) | length > 0
+
+    - name: Create the load-sharing SnapMirror relationship
+      netapp.ontap.na_ontap_rest_cli:
+        command: snapmirror
+        verb: POST
+        body:
+          source-path: "{{ svm_name_normalized }}:{{ root_volume_name }}"
+          destination-path: "{{ svm_name_normalized }}:{{ item }}"
+          type: LS
+          schedule: "{{ job_name_normalized }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      loop: "{{ lsm_missing_volumes | default([]) }}"
+      when: lsm_missing_volumes | default([]) | length > 0
+      loop_control:
         label: "{{ svm_name_normalized }}:{{ item }}"
+
+    - name: Initialize the load-sharing SnapMirror set
+      netapp.ontap.na_ontap_rest_cli:
+        command: snapmirror/initialize-ls-set
+        verb: POST
+        body:
+          source-path: "{{ svm_name_normalized }}:{{ root_volume_name }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      when:
+        - lsm_vol_list | default([]) | length > 0
+        - lsm_needs_initialize | default(false) | bool
 
     - name: Create and enable the iSCSI service
       netapp.ontap.na_ontap_iscsi:
