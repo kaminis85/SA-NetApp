@@ -218,6 +218,26 @@
         validate_certs: false
         use_rest: always
 
+    # ONTAP accepts this when a named protocol is already absent. nfs and iscsi stay.
+    - name: Remove protocols that were not selected
+      netapp.ontap.na_ontap_rest_cli:
+        command: vserver/remove-protocols
+        verb: PATCH
+        params:
+          vserver: "{{ svm_name_normalized }}"
+        body:
+          protocols:
+            - fcp
+            - cifs
+            - ndmp
+            - nvme
+            - s3
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+
     - name: Enable NFS on the SVM
       netapp.ontap.na_ontap_nfs:
         state: present
@@ -442,7 +462,7 @@
         verb: GET
         params:
           source-path: "{{ svm_name_normalized }}:{{ root_volume_name }}"
-          fields: destination-path,mirror-state,type
+          fields: destination-path,state
         hostname: "{{ ontap_hostname }}"
         username: "{{ ontap_username }}"
         password: "{{ ontap_password }}"
@@ -458,7 +478,7 @@
         destination_path: "{{ item['destination-path'] | default(item['destination_path'] | default('')) }}"
         row:
           volume: "{{ destination_path.split(':') | last }}"
-          mirror_state: "{{ (item['mirror-state'] | default(item['mirror_state'] | default(''))) | lower }}"
+          mirror_state: "{{ (item['state'] | default(item['mirror-state'] | default(item['mirror_state'] | default('')))) | lower }}"
       loop: "{{ (lsm_snapmirror_info.msg | default({})).records | default([]) }}"
       when: lsm_vol_list | default([]) | length > 0
       loop_control:
