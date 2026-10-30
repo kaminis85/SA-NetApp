@@ -1,0 +1,529 @@
+---
+# Aggregate names come from the node configuration table.
+# The SVM is created in the IPspace from Network Configuration.
+# Protocols are nfs, iscsi, or both.
+# nfs starts NFSv3 and NFSv4.1 and disables UDP.
+# iscsi starts the iSCSI service.
+# The job schedule drives the load-sharing SnapMirror of the SVM root volume.
+# Mirrors are placed on aggregates that are not on the root volume's node.
+# NVMe and S3 are not configured here.
+- name: Configure the ONTAP SVM
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
+    ipspace_name_normalized: "{{ ipspace_name | default('') | string | trim }}"
+    job_name_normalized: "{{ job_name | default('') | string | trim }}"
+    job_minutes_normalized: "{{ job_minutes | default('') | string | trim }}"
+    vsadmin_password_normalized: "{{ vsadmin_password | default('') | string }}"
+    svm_login_banner_normalized: "{{ svm_login_banner | default('') | string | trim }}"
+    node_rows: >-
+      {{
+        [] if (node_specs | default('[]') | string | trim) in ['', '[]']
+        else (node_specs | from_json if node_specs is string else node_specs)
+      }}
+    raw_protocols: "{{ allowed_protocols | default('[]') }}"
+    decoded_protocols: >-
+      {{
+        [] if (raw_protocols | string | trim) in ['', '[]']
+        else (
+          raw_protocols | from_json
+          if raw_protocols is string and (raw_protocols | string | trim) is match('^\\[')
+          else (
+            raw_protocols if raw_protocols is not string
+            else raw_protocols.split(',')
+          )
+        )
+      }}
+    protocol_list: >-
+      {{
+        decoded_protocols
+        | map('string')
+        | map('trim')
+        | map('lower')
+        | reject('equalto', '')
+        | unique
+        | list
+      }}
+    job_minute_tokens: >-
+      {{
+        job_minutes_normalized.split(',')
+        | map('trim')
+        | reject('equalto', '')
+        | list
+      }}
+
+  tasks:
+
+    - name: Note that the SVM name is blank
+      ansible.builtin.debug:
+        msg: The SVM name is blank, so SVM configuration was skipped.
+      when: svm_name_normalized | length == 0
+
+    - name: Stop when the SVM name is blank
+      ansible.builtin.meta: end_play
+      when: svm_name_normalized | length == 0
+
+    - name: Validate the SVM name
+      ansible.builtin.assert:
+        that:
+          - svm_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,40}$')
+        fail_msg: >-
+          SVM name must start with a letter or underscore, contain only
+          letters, numbers, underscores, hyphens, and periods, and be at most
+          41 characters.
+
+    - name: Validate the IPspace name
+      ansible.builtin.assert:
+        that:
+          - ipspace_name_normalized | length > 0
+          - ipspace_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,63}$')
+          - ipspace_name_normalized | lower not in ['default', 'cluster']
+        fail_msg: >-
+          SVM creation uses the IPspace name from Network Configuration. Enter
+          a name that starts with a letter or underscore. Default and Cluster
+          already exist and cannot be used here.
+
+    - name: Validate that at least one protocol is selected
+      ansible.builtin.assert:
+        that:
+          - protocol_list | length > 0
+        fail_msg: Select nfs, iscsi, or both.
+
+    - name: Validate each selected protocol
+      ansible.builtin.assert:
+        that:
+          - item in ['nfs', 'iscsi']
+        fail_msg: >-
+          {{ item }} is not a supported protocol. Select nfs, iscsi, or both.
+      loop: "{{ protocol_list }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Normalize node rows
+      ansible.builtin.set_fact:
+        node_plan: "{{ node_plan | default([]) + [normalized_row] }}"
+      vars:
+        normalized_row:
+          node_name: "{{ item.node_name | default(item['Node Name'], true) | default('', true) | trim }}"
+          aggregate_name: "{{ item.aggregate_name | default(item['Aggregate Name'], true) | default('', true) | trim }}"
+      loop: "{{ node_rows }}"
+      loop_control:
+        label: "{{ item.node_name | default(item['Node Name'], true) | default('unnamed row', true) }}"
+
+    - name: Validate that each node appears once
+      ansible.builtin.assert:
+        that:
+          - node_plan | default([]) | map(attribute='node_name') | unique | list | length == node_plan | default([]) | length
+        fail_msg: >-
+          Each node name can appear only once. Requested names:
+          {{ node_plan | default([]) | map(attribute='node_name') | join(', ') }}.
+      when: node_plan | default([]) | length > 0
+
+    - name: Validate node names on rows that name an aggregate
+      ansible.builtin.assert:
+        that:
+          - item.node_name | length > 0
+        fail_msg: >-
+          Row {{ ansible_loop.index }} names aggregate {{ item.aggregate_name }}
+          and needs a node name.
+      loop: "{{ node_plan | default([]) }}"
+      when: item.aggregate_name | length > 0
+      loop_control:
+        extended: true
+        label: "{{ item.aggregate_name | default('row ' ~ ansible_loop.index) }}"
+
+    - name: Build the aggregate list from the node rows
+      ansible.builtin.set_fact:
+        total_aggr_list: "{{ total_aggr_list | default([]) + [item.aggregate_name] }}"
+      loop: "{{ node_plan | default([]) }}"
+      when: item.aggregate_name | length > 0
+      loop_control:
+        label: "{{ item.aggregate_name }}"
+
+    - name: Validate the aggregate list
+      ansible.builtin.assert:
+        that:
+          - total_aggr_list | default([]) | length > 0
+          - total_aggr_list | default([]) | unique | list | length == total_aggr_list | default([]) | length
+        fail_msg: >-
+          SVM creation needs at least one aggregate name from the node
+          configuration rows, and those names must be unique. Requested names:
+          {{ total_aggr_list | default([]) | join(', ') }}.
+
+    - name: Validate that the job name and minutes are both set or both blank
+      ansible.builtin.assert:
+        that:
+          - (job_name_normalized | length > 0) == (job_minutes_normalized | length > 0)
+        fail_msg: >-
+          Enter both a job name and job minutes, or clear both to skip the
+          schedule and the load-sharing SnapMirror.
+
+    - name: Validate the job name
+      ansible.builtin.assert:
+        that:
+          - job_name_normalized is match('^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$')
+        fail_msg: >-
+          Job name must start with a letter, number, or underscore and contain
+          only letters, numbers, underscores, hyphens, and periods.
+      when: job_name_normalized | length > 0
+
+    - name: Validate the job minutes
+      ansible.builtin.assert:
+        that:
+          - job_minute_tokens | length > 0
+          - item is match('^[0-5]?[0-9]$')
+        fail_msg: >-
+          Job minutes must be whole numbers from 0 to 59, separated by commas.
+          Example: 0,15,30,45.
+      loop: "{{ job_minute_tokens if job_minute_tokens | length > 0 else ['missing'] }}"
+      when: job_name_normalized | length > 0
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Read the job minutes
+      ansible.builtin.set_fact:
+        job_minute_list: "{{ job_minute_tokens | map('int') | list }}"
+      when: job_name_normalized | length > 0
+
+    - name: Validate that each job minute is unique
+      ansible.builtin.assert:
+        that:
+          - job_minute_list | unique | list | length == job_minute_list | length
+        fail_msg: >-
+          Job minutes must be unique. Requested minutes:
+          {{ job_minute_list | join(', ') }}.
+      when: job_name_normalized | length > 0
+
+    - name: Show the aggregate list for the SVM
+      ansible.builtin.debug:
+        msg: >-
+          {{ total_aggr_list | length }} aggregate(s) will be assigned to
+          {{ svm_name_normalized }} in IPspace {{ ipspace_name_normalized }}
+          with protocols {{ protocol_list | join(', ') }}:
+          {{ total_aggr_list | join(', ') }}.
+
+    - name: Create the SVM with the selected protocols
+      netapp.ontap.na_ontap_svm:
+        state: present
+        name: "{{ svm_name_normalized }}"
+        ipspace: "{{ ipspace_name_normalized }}"
+        allowed_protocols: "{{ protocol_list }}"
+        aggr_list: "{{ total_aggr_list }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+
+    - name: Enable NFS on the SVM
+      netapp.ontap.na_ontap_nfs:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        service_state: started
+        nfsv3: enabled
+        nfsv41: enabled
+        udp: disabled
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      when: "'nfs' in protocol_list"
+
+    - name: Get the SVM root volume
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - storage/volumes
+        parameters:
+          name: "*root"
+          svm.name: "{{ svm_name_normalized }}"
+        fields:
+          - name
+          - aggregates
+          - is_svm_root
+      register: root_volume_info
+      no_log: true
+
+    - name: Select the SVM root volume
+      ansible.builtin.set_fact:
+        chosen_root_records: "{{ flagged_root_records if flagged_root_records | length > 0 else named_root_records }}"
+      vars:
+        volume_records: >-
+          {{
+            (root_volume_info.ontap_info.storage_volumes | default({})).records
+            | default([])
+          }}
+        flagged_root_records: >-
+          {{
+            volume_records
+            | selectattr('is_svm_root', 'defined')
+            | selectattr('is_svm_root')
+            | list
+          }}
+        named_root_records: >-
+          {{
+            volume_records
+            | selectattr('name', 'equalto', svm_name_normalized ~ '_root')
+            | list
+          }}
+
+    - name: Validate that the SVM root volume was found
+      ansible.builtin.assert:
+        that:
+          - chosen_root_records | length > 0
+        fail_msg: >-
+          Expected the SVM root volume on {{ svm_name_normalized }}.
+
+    - name: Record the SVM root volume and its aggregate
+      ansible.builtin.set_fact:
+        root_volume_name: "{{ chosen_root_records[0].name }}"
+        root_aggregate_name: "{{ ((chosen_root_records[0].aggregates | default([])) | first | default({})).name | default('') }}"
+
+    - name: Validate the SVM root volume aggregate
+      ansible.builtin.assert:
+        that:
+          - root_volume_name | default('') | length > 0
+          - root_aggregate_name | default('') | length > 0
+        fail_msg: >-
+          SVM root volume {{ root_volume_name | default('') }} did not report
+          an aggregate.
+
+    - name: Get the node that hosts the SVM root volume
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - storage/aggregates
+        parameters:
+          name: "{{ root_aggregate_name }}"
+        fields:
+          - name
+          - node
+      register: root_aggregate_info
+      no_log: true
+
+    - name: Validate the aggregate query for the SVM root volume
+      ansible.builtin.assert:
+        that:
+          - (root_aggregate_info.ontap_info.storage_aggregates | default({})).records | default([]) | length > 0
+        fail_msg: >-
+          Aggregate {{ root_aggregate_name }} was not found, so the node that
+          hosts the SVM root volume could not be read.
+
+    - name: Record the SVM root volume node
+      ansible.builtin.set_fact:
+        root_node_name: "{{ root_aggregate_info.ontap_info.storage_aggregates.records[0].node.name | default('') }}"
+
+    - name: Validate the SVM root volume node
+      ansible.builtin.assert:
+        that:
+          - root_node_name | default('') | length > 0
+        fail_msg: >-
+          Aggregate {{ root_aggregate_name }} did not report the node that
+          hosts the SVM root volume.
+
+    - name: Build the aggregate list for the SVM root volume node
+      ansible.builtin.set_fact:
+        aggr_list: "{{ aggr_list | default([]) + [item.aggregate_name] }}"
+      loop: "{{ node_plan | default([]) }}"
+      when:
+        - item.node_name == root_node_name
+        - item.aggregate_name | length > 0
+      loop_control:
+        label: "{{ item.node_name }}"
+
+    - name: Validate that the root volume node is one of the node rows
+      ansible.builtin.assert:
+        that:
+          - aggr_list | default([]) | length > 0
+        fail_msg: >-
+          The SVM root volume is on node {{ root_node_name }}, and none of the
+          node configuration rows name that node. Aggregate names on the rows:
+          {{ total_aggr_list | join(', ') }}.
+
+    - name: Build the load-sharing mirror aggregate list
+      ansible.builtin.set_fact:
+        lsm_aggr_list: "{{ lsm_aggr_list | default([]) + [item] }}"
+      loop: "{{ total_aggr_list }}"
+      when: item not in (aggr_list | default([]))
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Show the load-sharing mirror plan
+      ansible.builtin.debug:
+        msg: >-
+          Root volume {{ root_volume_name }} is on aggregate
+          {{ root_aggregate_name }} on node {{ root_node_name }}.
+          Aggregates on that node: {{ aggr_list | join(', ') }}.
+          Mirror aggregates: {{ lsm_aggr_list | default([]) | join(', ') }}.
+
+    - name: Note that every aggregate is on the SVM root volume node
+      ansible.builtin.debug:
+        msg: >-
+          Every aggregate from the node rows is on {{ root_node_name }}, which
+          hosts the SVM root volume. No load-sharing mirror was created.
+      when: lsm_aggr_list | default([]) | length == 0
+
+    - name: Note that the job schedule was left blank
+      ansible.builtin.debug:
+        msg: >-
+          Job name and job minutes are blank, so the job schedule, the
+          load-sharing mirror volumes, and the SnapMirror relationship were
+          skipped. Aggregates that would have received a mirror:
+          {{ lsm_aggr_list | join(', ') }}.
+      when:
+        - lsm_aggr_list | default([]) | length > 0
+        - job_name_normalized | length == 0
+
+    - name: Build the load-sharing mirror volume names
+      ansible.builtin.set_fact:
+        lsm_vol_list: "{{ lsm_vol_list | default([]) + [root_volume_name ~ '_lsm0' ~ ('%x' | format(item))] }}"
+      loop: "{{ range(1, (lsm_aggr_list | default([]) | length) + 1) | list }}"
+      when:
+        - lsm_aggr_list | default([]) | length > 0
+        - job_name_normalized | length > 0
+      loop_control:
+        label: "{{ root_volume_name }}_lsm0{{ '%x' | format(item) }}"
+
+    - name: Create the job schedule for the SVM root volume SnapMirror
+      netapp.ontap.na_ontap_job_schedule:
+        state: present
+        name: "{{ job_name_normalized }}"
+        job_minutes: "{{ job_minute_list }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      when: job_name_normalized | length > 0
+
+    - name: Create the load-sharing mirror volumes of the SVM root volume
+      netapp.ontap.na_ontap_volume:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        name: "{{ item.1 }}"
+        aggregate_name: "{{ item.0 }}"
+        size: 1
+        size_unit: gb
+        type: DP
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      loop: "{{ lsm_aggr_list | default([]) | zip(lsm_vol_list | default([])) | list }}"
+      when: lsm_vol_list | default([]) | length > 0
+      loop_control:
+        label: "{{ item.1 }} on {{ item.0 }}"
+
+    # Load-sharing relationships are a ZAPI operation. REST rejects this relationship type.
+    - name: Create and initialize the load-sharing SnapMirror relationship
+      netapp.ontap.na_ontap_snapmirror:
+        state: present
+        destination_endpoint:
+          path: "{{ svm_name_normalized }}:{{ item }}"
+        source_endpoint:
+          path: "{{ svm_name_normalized }}:{{ root_volume_name }}"
+        initialize: true
+        relationship_state: active
+        relationship_type: load_sharing
+        schedule: "{{ job_name_normalized }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: never
+      loop: "{{ lsm_vol_list | default([]) }}"
+      when: lsm_vol_list | default([]) | length > 0
+      loop_control:
+        label: "{{ svm_name_normalized }}:{{ item }}"
+
+    - name: Create and enable the iSCSI service
+      netapp.ontap.na_ontap_iscsi:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        service_state: started
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      when: "'iscsi' in protocol_list"
+
+    - name: Note that the vsadmin password was left blank
+      ansible.builtin.debug:
+        msg: The vsadmin password is blank, so vsadmin was left unchanged.
+      when: vsadmin_password_normalized | length == 0
+
+    - name: Set the vsadmin password
+      netapp.ontap.na_ontap_user:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        name: vsadmin
+        applications: http,ontapi,ssh
+        authentication_method: password
+        role_name: vsadmin
+        lock_user: true
+        set_password: "{{ vsadmin_password_normalized }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      when: vsadmin_password_normalized | length > 0
+      no_log: true
+
+    - name: Unlock the vsadmin user
+      netapp.ontap.na_ontap_user:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        name: vsadmin
+        applications: http,ontapi,ssh
+        authentication_method: password
+        role_name: vsadmin
+        lock_user: false
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      when: vsadmin_password_normalized | length > 0
+
+    - name: Note that the SVM login banner was left blank
+      ansible.builtin.debug:
+        msg: The SVM login banner is blank, so the banner was left unchanged.
+      when: svm_login_banner_normalized | length == 0
+
+    - name: Create the SVM login banner
+      netapp.ontap.na_ontap_login_messages:
+        vserver: "{{ svm_name_normalized }}"
+        banner: "{{ svm_login_banner_normalized }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      when: svm_login_banner_normalized | length > 0

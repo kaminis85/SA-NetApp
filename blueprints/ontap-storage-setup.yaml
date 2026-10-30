@@ -10,7 +10,11 @@ description: >-
   to skip IPspace, broadcast domain, and VLAN creation. The interface group
   runs from its own name and the node data ports. Each network is skipped
   when its VLAN name or VLAN ID is blank.
-  Fibre Channel is not included.
+  An SVM is created when its name is filled in. It uses that IPspace and the
+  aggregate names from the node rows. Protocols are nfs, iscsi, or both.
+  The job schedule defaults to 15min at minutes 0, 15, 30, and 45. Clear the
+  SVM name to skip it.
+  Fibre Channel, NVMe, and S3 are not included.
 
 instructions:
   source:
@@ -95,6 +99,9 @@ customization:
       configure_ontap_network:
         type: grain
         position: {x: 360, y: 1040}
+      configure_ontap_svm:
+        type: grain
+        position: {x: 640, y: 1040}
   launch-form:
     categories:
       - name: ONTAP Storage Setup
@@ -166,6 +173,14 @@ customization:
               - name: iscsi_a_vlan_id
               - name: iscsi_b_vlan_name
               - name: iscsi_b_vlan_id
+          - name: SVM Configuration
+            inputs:
+              - name: svm_name
+              - name: allowed_protocols
+              - name: job_name
+              - name: job_minutes
+              - name: vsadmin_password
+              - name: svm_login_banner
 
 inputs:
   agent:
@@ -200,7 +215,8 @@ inputs:
       service processor, data ports, interface group, and one aggregate. Data
       Ports is a comma-separated list, for example e5a,e5b. In-band management,
       NFS, and iSCSI VLANs are created on the interface group of each node that
-      lists data ports. To skip service-processor, aggregate, interface-group,
+      lists data ports. Aggregate names from these rows are assigned to the SVM
+      when an SVM name is set. To skip service-processor, aggregate, interface-group,
       and data-port tasks, delete every row. A blank row keeps Finish disabled.
   dns_domain_name:
     type: string
@@ -333,7 +349,8 @@ inputs:
       IPspace for the in-band management, NFS, and iSCSI broadcast domains and
       VLANs. Example: AA02-OCP. The name starts with a letter or underscore.
       Leave this blank to skip IPspace, broadcast domain, and VLAN creation.
-      The interface group task does not read this field.
+      The interface group task does not read this field. The SVM is created
+      in this IPspace when an SVM name is set.
   ib_mgmt_vlan_name:
     type: string
     default: ""
@@ -387,6 +404,54 @@ inputs:
     description: >-
       iSCSI VLAN ID for fabric B, from 1 to 4094. Example: 3022. Leave this or
       the VLAN name blank to skip fabric B.
+  svm_name:
+    type: string
+    default: ""
+    description: >-
+      SVM name. Example: AA02-OCP-SVM. The name starts with a letter or
+      underscore. The SVM is created in the IPspace from Network Configuration,
+      and the aggregate names from the node rows are assigned to it. Leave
+      this blank to skip SVM creation, the protocol services, the job schedule,
+      the load-sharing SnapMirror, vsadmin, and the SVM login banner.
+  allowed_protocols:
+    type: string
+    style: multi-select
+    default: "[]"
+    allowed-values: ["nfs", "iscsi"]
+    description: >-
+      Protocols allowed on the SVM. The dropdown starts empty. Choose nfs,
+      iscsi, or both. nfs starts the NFS service with NFSv3 and NFSv4.1
+      enabled and UDP disabled. iscsi starts the iSCSI service. At least one
+      protocol is required when the SVM name is set.
+  job_name:
+    type: string
+    default: 15min
+    description: >-
+      Job schedule name used by the load-sharing SnapMirror of the SVM root
+      volume. Defaults to 15min. The name starts with a letter, number, or
+      underscore. Clear this and the job minutes to skip the schedule, the
+      mirror volumes, and the SnapMirror relationship.
+  job_minutes:
+    type: string
+    default: "0,15,30,45"
+    description: >-
+      Minutes of each hour when the job schedule runs, separated by commas.
+      Defaults to 0,15,30,45, which runs at minute 0, 15, 30, and 45. Other
+      15-minute examples are 5,20,35,50 and 7,22,37,52. Each value is a whole
+      number from 0 to 59. Clear this and the job name to skip the schedule,
+      the mirror volumes, and the SnapMirror relationship.
+  vsadmin_password:
+    type: string
+    sensitive: true
+    default: ""
+    description: >-
+      Password for the SVM vsadmin account. The value is masked. When this is
+      filled in, the password is set and vsadmin is unlocked for http, ontapi,
+      and ssh. Leave this blank to leave vsadmin unchanged.
+  svm_login_banner:
+    type: string
+    default: ""
+    description: Login banner text for the SVM. Leave this blank to skip the SVM banner.
 
 grains:
   update_cluster_location:
@@ -742,3 +807,26 @@ grains:
         - iscsi_a_vlan_id: '{{ .inputs.iscsi_a_vlan_id }}'
         - iscsi_b_vlan_name: '{{ .inputs.iscsi_b_vlan_name }}'
         - iscsi_b_vlan_id: '{{ .inputs.iscsi_b_vlan_id }}'
+
+  configure_ontap_svm:
+    kind: ansible
+    when: '{% if .inputs.svm_name != "" %}true{% else %}false{% endif %}'
+    depends-on: create_data_aggregates, configure_ontap_network
+    spec:
+      source:
+        store: SA-NetApp
+        path: assets/ansible/netapp-ontap/configure_ontap_svm.yaml
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+        - ontap_username: '{{ .inputs.ontap_username }}'
+        - ontap_password: '{{ .inputs.ontap_password }}'
+        - node_specs: '{{ .inputs.node_specs }}'
+        - ipspace_name: '{{ .inputs.ipspace_name }}'
+        - svm_name: '{{ .inputs.svm_name }}'
+        - allowed_protocols: '{{ .inputs.allowed_protocols }}'
+        - job_name: '{{ .inputs.job_name }}'
+        - job_minutes: '{{ .inputs.job_minutes }}'
+        - vsadmin_password: '{{ .inputs.vsadmin_password }}'
+        - svm_login_banner: '{{ .inputs.svm_login_banner }}'
