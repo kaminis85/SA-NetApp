@@ -558,7 +558,9 @@
       vars:
         destination_path: "{{ item['destination-path'] | default(item['destination_path'] | default('')) }}"
         row:
-          volume: "{{ destination_path.split(':') | last }}"
+          # CLI returns cluster://svm/volume. svm:volume is the other form.
+          # The volume name is the last segment of either path.
+          volume: "{{ destination_path | regex_replace('^.*[:/]', '') }}"
           mirror_state: "{{ (item['state'] | default(item['mirror-state'] | default(item['mirror_state'] | default('')))) | lower }}"
       loop: "{{ (lsm_snapmirror_info.msg | default({})).records | default([]) }}"
       when: lsm_vol_list | default([]) | length > 0
