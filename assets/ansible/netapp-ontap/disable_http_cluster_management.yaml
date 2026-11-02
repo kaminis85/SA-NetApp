@@ -12,49 +12,74 @@
           - cluster_name | default('') | length > 0
         fail_msg: Provide cluster_name.
 
-    # na_ontap_service_policy replaces the whole service list, so a partial
-    # update can drop the other services. This command removes only
-    # management-http from default-management on the cluster vserver.
-    # Each REST call is its own session, so set advanced has to travel with
-    # the command as privilege_level. That is the same as set advanced in the CLI.
-    - name: Get the default-management service policy
-      netapp.ontap.na_ontap_rest_cli:
-        command: network/interface/service-policy
-        verb: GET
-        params:
-          vserver: "{{ cluster_name }}"
-          policy: default-management
-          privilege_level: advanced
+    # Read the public REST object because private CLI show output does not
+    # include the service list unless fields are requested explicitly.
+    - name: Get the default-management service policy and its services
+      netapp.ontap.na_ontap_rest_info:
         hostname: "{{ ontap_hostname }}"
         username: "{{ ontap_username }}"
         password: "{{ ontap_password }}"
         https: true
         validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - network/ip/service-policies
+        fields:
+          - name
+          - services
+          - svm.name
+        parameters:
+          name: default-management
+          svm.name: "{{ cluster_name }}"
       register: policy_show
       no_log: true
 
     - name: Validate the default-management policy
       ansible.builtin.assert:
         that:
-          - policy_show.msg.records | default([]) | length > 0
+          - default_management_policies | length == 1
         fail_msg: The cluster did not return the default-management service policy for this cluster name.
+      vars:
+        default_management_policies: >-
+          {{
+            policy_show.ontap_info.network_ip_service_policies.records
+            | default([])
+            | selectattr('name', 'equalto', 'default-management')
+            | selectattr('svm.name', 'equalto', cluster_name)
+            | list
+          }}
+
+    - name: Record the default-management service policy
+      ansible.builtin.set_fact:
+        default_management_policy: >-
+          {{
+            (
+              policy_show.ontap_info.network_ip_service_policies.records
+              | default([])
+              | selectattr('name', 'equalto', 'default-management')
+              | selectattr('svm.name', 'equalto', cluster_name)
+              | list
+            )[0]
+          }}
 
     - name: Record whether HTTP management is enabled
       ansible.builtin.set_fact:
-        http_management_enabled: "{{ 'management-http' in policy_json or 'management_http' in policy_json }}"
-      vars:
-        policy_json: "{{ policy_show.msg | to_json }}"
+        http_management_enabled: >-
+          {{
+            'management-http' in (default_management_policy.services | default([]))
+            or 'management_http' in (default_management_policy.services | default([]))
+          }}
 
     - name: Remove HTTP from the default-management service policy
       netapp.ontap.na_ontap_rest_cli:
         command: network/interface/service-policy/remove-service
-        verb: POST
+        verb: DELETE
         params:
-          privilege_level: advanced
-        body:
           vserver: "{{ cluster_name }}"
           policy: default-management
           service: management-http
+          privilege_level: advanced
         hostname: "{{ ontap_hostname }}"
         username: "{{ ontap_username }}"
         password: "{{ ontap_password }}"
