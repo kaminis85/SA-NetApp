@@ -1,0 +1,63 @@
+---
+- name: Disable HTTP cluster management access
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+
+    - name: Validate the cluster name
+      ansible.builtin.assert:
+        that:
+          - cluster_name | default('') | length > 0
+        fail_msg: Provide cluster_name.
+
+    # na_ontap_service_policy replaces the whole service list, so a partial
+    # update can drop the other services. This command removes only
+    # management-http from default-management on the cluster vserver.
+    - name: Get the default-management service policy
+      netapp.ontap.na_ontap_rest_cli:
+        command: network/interface/service-policy
+        verb: GET
+        params:
+          vserver: "{{ cluster_name }}"
+          policy: default-management
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      register: policy_show
+      no_log: true
+
+    - name: Validate the default-management policy
+      ansible.builtin.assert:
+        that:
+          - policy_show.msg.records | default([]) | length > 0
+        fail_msg: The cluster did not return the default-management service policy for this cluster name.
+
+    - name: Record whether HTTP management is enabled
+      ansible.builtin.set_fact:
+        http_management_enabled: "{{ 'management-http' in policy_json or 'management_http' in policy_json }}"
+      vars:
+        policy_json: "{{ policy_show.msg | to_json }}"
+
+    - name: Remove HTTP from the default-management service policy
+      netapp.ontap.na_ontap_rest_cli:
+        command: network/interface/service-policy/remove-service
+        verb: POST
+        body:
+          vserver: "{{ cluster_name }}"
+          policy: default-management
+          service: management-http
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      when: http_management_enabled | bool
+
+    - name: Report that HTTP cluster management is already disabled
+      ansible.builtin.debug:
+        msg: HTTP cluster management is already disabled.
+      when: not (http_management_enabled | bool)

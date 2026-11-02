@@ -18,7 +18,7 @@ The job schedule is used by the load-sharing SnapMirror of the SVM root volume. 
 
 The vsadmin password is masked. When it is filled in, the password is set on vsadmin and the account is unlocked for http, ontapi, and ssh. Leave it blank to leave vsadmin unchanged. The SVM login banner is set when that text is filled in. Leave it blank to skip the banner.
 
-Cluster name is used only by the location and timezone tasks. It must exactly match the cluster's current name. Entering a different value renames the cluster while those tasks run.
+Cluster name is used by the location, timezone, and HTTP tasks. It must exactly match the cluster's current name. Entering a different value renames the cluster when location or timezone runs. When the cluster name is filled in, HTTP is removed from the cluster default-management service policy. HTTPS, SSH, and the other services on that policy stay in place. Leave the cluster name blank to skip location, timezone, and this HTTP task.
 
 | Filled in | Task that runs |
 | --- | --- |
@@ -35,6 +35,7 @@ Cluster name is used only by the location and timezone tasks. It must exactly ma
 | DNS domain and DNS servers | Configure DNS |
 | NTP servers | Configure NTP |
 | Cluster name and timezone | Set the timezone |
+| Cluster name | Disable HTTP cluster management. This removes management-http from the default-management service policy on that cluster. Leave the cluster name blank to skip this task |
 | AutoSupport mail settings | Configure AutoSupport on the nodes discovered from the cluster |
 | Legacy license keys or NLF contents | Add licenses |
 | FIPS dropdown | Set SSL FIPS mode on every launch. The dropdown defaults to `false`, which matches a new ONTAP cluster. Choose `true` to enable FIPS-compliant SSL |

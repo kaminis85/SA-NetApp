@@ -4,6 +4,8 @@ description: >-
   Only the cluster address, username, and password are required. A task runs
   when its fields are filled in and stays skipped when they are left blank.
   SSL FIPS is set on every launch and defaults to false.
+  HTTP cluster management is disabled when the cluster name is filled in.
+  Leave that name blank to skip it.
   The data interface group defaults to a0a and is created when node rows
   list data ports. Clear that name to skip it.
   An IPspace is created when its name is filled in. Leave that name blank
@@ -93,15 +95,18 @@ customization:
       create_login_banner:
         type: grain
         position: {x: 1200, y: 800}
-      configure_ifgrp:
+      disable_http_cluster_management:
         type: grain
         position: {x: 80, y: 1040}
-      configure_ontap_network:
+      configure_ifgrp:
         type: grain
         position: {x: 360, y: 1040}
-      configure_ontap_svm:
+      configure_ontap_network:
         type: grain
         position: {x: 640, y: 1040}
+      configure_ontap_svm:
+        type: grain
+        position: {x: 920, y: 1040}
   launch-form:
     categories:
       - name: ONTAP Storage Setup
@@ -201,8 +206,11 @@ inputs:
     type: string
     default: ""
     description: >-
-      ONTAP cluster name. Used by location and timezone. Must exactly match the
-      cluster's current name. Entering a different value renames the cluster.
+      ONTAP cluster name. Used by location, timezone, and disabling HTTP
+      cluster management. Must exactly match the cluster's current name.
+      Entering a different value renames the cluster when location or timezone
+      is set. Leave this blank to skip those tasks and leave HTTP management
+      unchanged.
   cluster_location:
     type: string
     default: ""
@@ -763,6 +771,21 @@ grains:
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
         - cluster_login_banner: '{{ .inputs.cluster_login_banner }}'
+
+  disable_http_cluster_management:
+    kind: ansible
+    when: '{% if .inputs.cluster_name != "" %}true{% else %}false{% endif %}'
+    spec:
+      source:
+        store: SA-NetApp
+        path: assets/ansible/netapp-ontap/disable_http_cluster_management.yaml
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+        - ontap_username: '{{ .inputs.ontap_username }}'
+        - ontap_password: '{{ .inputs.ontap_password }}'
+        - cluster_name: '{{ .inputs.cluster_name }}'
 
   configure_ifgrp:
     kind: ansible
