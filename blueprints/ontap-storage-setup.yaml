@@ -21,6 +21,9 @@ description: >-
   on the node that hosts the SVM root volume. Its home port is the in-band
   management VLAN interface, for example a0a-2235. The gateway is the SVM
   default route. Leave those four fields blank to skip the LIF and the route.
+  SVM DNS is svm_dns_domain and svm_dns_servers. Fill in both to configure DNS
+  on the SVM. Leave both blank to skip it. Cluster DNS still uses
+  dns_domain_name and dns_servers.
   Fibre Channel, NVMe, and S3 are not included.
 
 instructions:
@@ -195,6 +198,8 @@ customization:
               - name: address
               - name: netmask
               - name: gateway
+              - name: svm_dns_servers
+              - name: svm_dns_domain
 
 inputs:
   agent:
@@ -430,7 +435,7 @@ inputs:
       and the aggregate names from the node rows are assigned to it. Leave
       this blank to skip SVM creation, the protocol services, the job schedule,
       the load-sharing SnapMirror, the SVM management LIF, the default route,
-      vsadmin, and the SVM login banner.
+      vsadmin, the SVM login banner, and SVM DNS.
   allowed_protocols:
     type: string
     style: multi-select
@@ -502,6 +507,21 @@ inputs:
       SVM management LIF gateway. Example: 10.102.2.254. This is the SVM
       default route to 0.0.0.0/0. Fill this in together with lif_name,
       address, and netmask.
+  svm_dns_servers:
+    type: string
+    default: ""
+    description: >-
+      Comma-separated DNS server IPv4 addresses for the SVM. Example:
+      10.1.1.10,10.1.1.11. This is separate from the cluster DNS servers.
+      Fill this in together with svm_dns_domain. Leave both blank to skip SVM DNS.
+      SVM DNS runs after the SVM management LIF and the default route.
+  svm_dns_domain:
+    type: string
+    default: ""
+    description: >-
+      DNS domain name for the SVM. Example: example.com. This is separate
+      from the cluster DNS domain. Fill this in together with svm_dns_servers.
+      Leave both blank to skip SVM DNS.
 
 grains:
   update_cluster_location:
@@ -902,3 +922,5 @@ grains:
         - address: '{{ .inputs.address }}'
         - netmask: '{{ .inputs.netmask }}'
         - gateway: '{{ .inputs.gateway }}'
+        - svm_dns_servers: '{{ .inputs.svm_dns_servers }}'
+        - svm_dns_domain: '{{ .inputs.svm_dns_domain }}'

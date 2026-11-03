@@ -11,6 +11,9 @@
 # It is created on the node that hosts the SVM root volume.
 # Its home port is the in-band management VLAN, <interface group>-<VLAN ID>.
 # The gateway is the SVM default route.
+# SVM DNS is svm_dns_domain and svm_dns_servers.
+# Fill in both to configure DNS on the SVM. Leave both blank to skip it.
+# DNS runs after the SVM management LIF and the default route.
 # NVMe and S3 are not configured here.
 - name: Configure the ONTAP SVM
   hosts: localhost
@@ -30,12 +33,26 @@
     lif_address_normalized: "{{ address | default('') | string | trim }}"
     lif_netmask_normalized: "{{ netmask | default('') | string | trim }}"
     lif_gateway_normalized: "{{ gateway | default('') | string | trim }}"
+    svm_dns_domain_normalized: "{{ svm_dns_domain | default('') | string | trim }}"
+    svm_dns_servers_normalized: "{{ svm_dns_servers | default('') | string | trim }}"
     svm_mgmt_lif_requested: >-
       {{
         lif_name_normalized | length > 0
         or lif_address_normalized | length > 0
         or lif_netmask_normalized | length > 0
         or lif_gateway_normalized | length > 0
+      }}
+    svm_dns_server_list: >-
+      {{
+        svm_dns_servers_normalized.split(',')
+        | map('trim')
+        | reject('equalto', '')
+        | list
+      }}
+    svm_dns_requested: >-
+      {{
+        svm_dns_domain_normalized | length > 0
+        or svm_dns_server_list | length > 0
       }}
     ipv4_pattern: '^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$'
     ipv4_netmasks:
@@ -313,6 +330,42 @@
           SVM management LIF was left blank, so the management LIF and the
           default route were skipped.
       when: not (svm_mgmt_lif_requested | bool)
+
+    - name: Validate that the SVM DNS domain and servers are both set or both blank
+      ansible.builtin.assert:
+        that:
+          - (svm_dns_domain_normalized | length > 0) == (svm_dns_server_list | length > 0)
+        fail_msg: >-
+          Enter both a DNS domain and DNS servers, or clear both to skip SVM DNS.
+
+    - name: Validate the SVM DNS domain
+      ansible.builtin.assert:
+        that:
+          - svm_dns_domain_normalized is match('^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$')
+        fail_msg: >-
+          DNS domain must be a domain name, for example example.com.
+      when: svm_dns_requested | bool
+
+    - name: Validate the SVM DNS servers
+      ansible.builtin.assert:
+        that:
+          - item is match(ipv4_pattern)
+        fail_msg: >-
+          DNS servers must be comma-separated IPv4 addresses. Example:
+          10.1.1.10,10.1.1.11.
+      loop: "{{ svm_dns_server_list }}"
+      when: svm_dns_requested | bool
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Validate that each SVM DNS server is unique
+      ansible.builtin.assert:
+        that:
+          - svm_dns_server_list | unique | list | length == svm_dns_server_list | length
+        fail_msg: >-
+          DNS server addresses must be unique. Requested servers:
+          {{ svm_dns_server_list | join(', ') }}.
+      when: svm_dns_requested | bool
 
     - name: Show the aggregate list for the SVM
       ansible.builtin.debug:
@@ -868,3 +921,29 @@
         validate_certs: false
         use_rest: always
       when: svm_login_banner_normalized | length > 0
+
+    - name: Note that SVM DNS was left blank
+      ansible.builtin.debug:
+        msg: DNS domain and DNS servers are blank, so SVM DNS was skipped.
+      when: not (svm_dns_requested | bool)
+
+    - name: Show the SVM DNS plan
+      ansible.builtin.debug:
+        msg: >-
+          SVM {{ svm_name_normalized }} DNS domain is {{ svm_dns_domain_normalized }}.
+          Name servers: {{ svm_dns_server_list | join(', ') }}.
+      when: svm_dns_requested | bool
+
+    - name: Configure DNS for the SVM
+      netapp.ontap.na_ontap_dns:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        nameservers: "{{ svm_dns_server_list }}"
+        domains: "{{ svm_dns_domain_normalized }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      when: svm_dns_requested | bool
