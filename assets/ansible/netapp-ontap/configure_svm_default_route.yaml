@@ -1,0 +1,54 @@
+# The SVM default route runs only after the management LIF is created.
+# svm_mgmt_lif_gateway is checked just before the route is created.
+# A blank gateway skips this task. Skipping the LIF skips the route as well.
+- name: Create the SVM default route
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
+    svm_mgmt_lif_address_normalized: "{{ svm_mgmt_lif_address | default('') | string | trim }}"
+    svm_mgmt_lif_gateway_normalized: "{{ svm_mgmt_lif_gateway | default('') | string | trim }}"
+    ipv4_pattern: '^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$'
+
+  tasks:
+
+    - name: Validate the SVM name
+      ansible.builtin.assert:
+        that:
+          - svm_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,40}$')
+        fail_msg: >-
+          SVM name must start with a letter or underscore, contain only
+          letters, numbers, underscores, hyphens, and periods, and be at most
+          41 characters.
+
+    - name: Validate svm_mgmt_lif_gateway
+      ansible.builtin.assert:
+        that:
+          - svm_mgmt_lif_gateway_normalized is match(ipv4_pattern)
+        fail_msg: svm_mgmt_lif_gateway must be an IPv4 address.
+
+    - name: Validate that svm_mgmt_lif_address and svm_mgmt_lif_gateway differ
+      ansible.builtin.assert:
+        that:
+          - svm_mgmt_lif_address_normalized != svm_mgmt_lif_gateway_normalized
+        fail_msg: svm_mgmt_lif_address and svm_mgmt_lif_gateway must be different.
+
+    - name: Show the SVM default route plan
+      ansible.builtin.debug:
+        msg: >-
+          The SVM default route to 0.0.0.0/0 will use gateway
+          {{ svm_mgmt_lif_gateway_normalized }}.
+
+    - name: Create the default route on the SVM
+      netapp.ontap.na_ontap_net_routes:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        destination: 0.0.0.0/0
+        gateway: "{{ svm_mgmt_lif_gateway_normalized }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always

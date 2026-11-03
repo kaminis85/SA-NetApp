@@ -1,0 +1,85 @@
+# SVM DNS is svm_dns_servers and svm_dns_domain.
+# Fill in both to configure DNS on the SVM. Leave both blank to skip it.
+# Set only one and this task fails.
+# This task runs after the default route. The default route runs after the
+# management LIF, and that LIF runs after the SVM.
+- name: Configure DNS for the SVM
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
+    svm_dns_domain_normalized: "{{ svm_dns_domain | default('') | string | trim }}"
+    svm_dns_servers_normalized: "{{ svm_dns_servers | default('') | string | trim }}"
+    svm_dns_server_list: >-
+      {{
+        svm_dns_servers_normalized.split(',')
+        | map('trim')
+        | reject('equalto', '')
+        | list
+      }}
+    ipv4_pattern: '^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$'
+
+  tasks:
+
+    - name: Validate the SVM name
+      ansible.builtin.assert:
+        that:
+          - svm_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,40}$')
+        fail_msg: >-
+          SVM name must start with a letter or underscore, contain only
+          letters, numbers, underscores, hyphens, and periods, and be at most
+          41 characters.
+
+    - name: Validate that the SVM DNS domain and servers are both set
+      ansible.builtin.assert:
+        that:
+          - svm_dns_domain_normalized | length > 0
+          - svm_dns_server_list | length > 0
+        fail_msg: >-
+          Enter both a DNS domain and DNS servers, or clear both to skip SVM DNS.
+
+    - name: Validate the SVM DNS domain
+      ansible.builtin.assert:
+        that:
+          - svm_dns_domain_normalized is match('^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$')
+        fail_msg: >-
+          DNS domain must be a domain name, for example example.com.
+
+    - name: Validate the SVM DNS servers
+      ansible.builtin.assert:
+        that:
+          - item is match(ipv4_pattern)
+        fail_msg: >-
+          DNS servers must be comma-separated IPv4 addresses. Example:
+          10.1.1.10,10.1.1.11.
+      loop: "{{ svm_dns_server_list }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Validate that each SVM DNS server is unique
+      ansible.builtin.assert:
+        that:
+          - svm_dns_server_list | unique | list | length == svm_dns_server_list | length
+        fail_msg: >-
+          DNS server addresses must be unique. Requested servers:
+          {{ svm_dns_server_list | join(', ') }}.
+
+    - name: Show the SVM DNS plan
+      ansible.builtin.debug:
+        msg: >-
+          SVM {{ svm_name_normalized }} DNS domain is {{ svm_dns_domain_normalized }}.
+          Name servers: {{ svm_dns_server_list | join(', ') }}.
+
+    - name: Configure DNS for the SVM
+      netapp.ontap.na_ontap_dns:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        nameservers: "{{ svm_dns_server_list }}"
+        domains: "{{ svm_dns_domain_normalized }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always

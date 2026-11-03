@@ -1,0 +1,60 @@
+# The vsadmin password is checked with this task.
+# Leave it blank and this task stays skipped.
+- name: Set the SVM vsadmin password
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
+    vsadmin_password_normalized: "{{ vsadmin_password | default('') | string }}"
+
+  tasks:
+
+    - name: Validate the SVM name
+      ansible.builtin.assert:
+        that:
+          - svm_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,40}$')
+        fail_msg: >-
+          SVM name must start with a letter or underscore, contain only
+          letters, numbers, underscores, hyphens, and periods, and be at most
+          41 characters.
+
+    - name: Validate the vsadmin password
+      ansible.builtin.assert:
+        that:
+          - vsadmin_password_normalized | length > 0
+        fail_msg: Provide vsadmin_password.
+
+    - name: Set the vsadmin password
+      netapp.ontap.na_ontap_user:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        name: vsadmin
+        applications: http,ontapi,ssh
+        authentication_method: password
+        role_name: vsadmin
+        lock_user: true
+        set_password: "{{ vsadmin_password_normalized }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      no_log: true
+
+    - name: Unlock the vsadmin user
+      netapp.ontap.na_ontap_user:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        name: vsadmin
+        applications: http,ontapi,ssh
+        authentication_method: password
+        role_name: vsadmin
+        lock_user: false
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always

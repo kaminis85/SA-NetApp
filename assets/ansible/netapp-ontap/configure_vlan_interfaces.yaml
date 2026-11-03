@@ -1,4 +1,3 @@
----
 # Nodes and data ports come from the node configuration table.
 # The VLAN parent is the interface group name.
 # Each network below is one entry from the FlexPod VLAN list:
@@ -8,12 +7,9 @@
 #   iSCSI-B is storage protocol iSCSI, fabric B, MTU 9000
 # Fabric is not sent to ONTAP. It distinguishes the two iSCSI VLANs.
 # A network is skipped when its VLAN name or VLAN ID is blank.
-# The VLAN name is also the broadcast domain name.
-# The IPspace name is checked just before the IPspace is created.
-# VLAN names and IDs are checked just before the broadcast domains are
-# created. The interface group name and node names are checked just
-# before the VLAN interfaces are created.
-- name: Configure ONTAP IPspace, broadcast domains, and VLANs
+# The interface group name and node names are checked just before the
+# VLAN interfaces are created.
+- name: Create ONTAP VLAN interfaces
   hosts: localhost
   connection: local
   gather_facts: false
@@ -66,48 +62,23 @@
       ansible.builtin.set_fact:
         vlan_plan: "{{ network_inputs | selectattr('name') | selectattr('id') | list }}"
 
-    - name: Note that the IPspace name is blank
-      ansible.builtin.debug:
-        msg: >-
-          The IPspace name is blank, so IPspace, broadcast domain, and VLAN
-          creation was skipped.
-      when: ipspace_name_normalized | length == 0
-
-    - name: Stop when the IPspace name is blank
-      ansible.builtin.meta: end_play
-      when: ipspace_name_normalized | length == 0
-
-    - name: Validate the IPspace name
-      ansible.builtin.assert:
-        that:
-          - ipspace_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,63}$')
-          - ipspace_name_normalized | lower not in ['default', 'cluster']
-        fail_msg: >-
-          IPspace name must start with a letter or underscore and contain only
-          letters, numbers, underscores, hyphens, and periods. Default and
-          Cluster already exist and cannot be used here.
-
-    - name: Create the IPspace
-      netapp.ontap.na_ontap_ipspace:
-        state: present
-        name: "{{ ipspace_name_normalized }}"
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
-        use_rest: always
-
     - name: Note that no VLAN was requested
       ansible.builtin.debug:
-        msg: >-
-          No VLAN has both a name and an ID, so no broadcast domain or VLAN
-          was created.
+        msg: No VLAN has both a name and an ID, so no VLAN interface was created.
       when: vlan_plan | length == 0
 
     - name: Stop when no VLAN was requested
       ansible.builtin.meta: end_play
       when: vlan_plan | length == 0
+
+    - name: Note that VLAN interfaces were skipped because the interface group name is blank
+      ansible.builtin.debug:
+        msg: The interface group name is blank, so the VLAN interfaces were skipped.
+      when: ifgrp_name_normalized | length == 0
+
+    - name: Stop when the interface group name is blank
+      ansible.builtin.meta: end_play
+      when: ifgrp_name_normalized | length == 0
 
     - name: Normalize node rows
       ansible.builtin.set_fact:
@@ -147,6 +118,15 @@
       loop_control:
         label: "{{ item.node_name }}"
 
+    - name: Note that VLAN interfaces were skipped because no node lists data ports
+      ansible.builtin.debug:
+        msg: No node lists data ports, so the VLAN interfaces were skipped.
+      when: port_plan | default([]) | length == 0
+
+    - name: Stop when no node lists data ports
+      ansible.builtin.meta: end_play
+      when: port_plan | default([]) | length == 0
+
     - name: Validate VLAN IDs
       ansible.builtin.assert:
         that:
@@ -185,81 +165,6 @@
         fail_msg: >-
           VLAN IDs must be unique. Requested IDs:
           {{ vlan_plan | map(attribute='id') | join(', ') }}.
-
-    - name: Create Management Broadcast Domain
-      netapp.ontap.na_ontap_broadcast_domain:
-        state: present
-        name: "{{ item.name }}"
-        ipspace: "{{ ipspace_name_normalized }}"
-        mtu: "{{ item.mtu | int }}"
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
-        use_rest: always
-      loop: "{{ vlan_plan }}"
-      when: item.protocol == 'management'
-      loop_control:
-        label: "{{ item.role }} {{ item.name }} MTU {{ item.mtu }}"
-
-    - name: Create NFS broadcast domain ports with Jumbo frames
-      netapp.ontap.na_ontap_broadcast_domain:
-        state: present
-        name: "{{ item.name }}"
-        ipspace: "{{ ipspace_name_normalized }}"
-        mtu: "{{ item.mtu | int }}"
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
-        use_rest: always
-      loop: "{{ vlan_plan }}"
-      when: item.protocol == 'NFS'
-      loop_control:
-        label: "{{ item.protocol }} {{ item.name }} MTU {{ item.mtu }}"
-
-    - name: Create iSCSI broadcast domain ports with Jumbo frames
-      netapp.ontap.na_ontap_broadcast_domain:
-        state: present
-        name: "{{ item.name }}"
-        ipspace: "{{ ipspace_name_normalized }}"
-        mtu: "{{ item.mtu | int }}"
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
-        use_rest: always
-      loop: "{{ vlan_plan }}"
-      when: item.protocol == 'iSCSI'
-      loop_control:
-        label: "{{ item.protocol }} fabric {{ item.fabric }} {{ item.name }} MTU {{ item.mtu }}"
-
-    - name: Note that VLAN interfaces were skipped because the interface group name is blank
-      ansible.builtin.debug:
-        msg: >-
-          The interface group name is blank, so the VLAN interfaces were
-          skipped. Broadcast domains were still created for each network that
-          has a VLAN name and VLAN ID.
-      when: ifgrp_name_normalized | length == 0
-
-    - name: Stop when the interface group name is blank
-      ansible.builtin.meta: end_play
-      when: ifgrp_name_normalized | length == 0
-
-    - name: Note that VLAN interfaces were skipped because no node lists data ports
-      ansible.builtin.debug:
-        msg: >-
-          No node lists data ports, so the VLAN interfaces were skipped.
-          Broadcast domains were still created for each network that has a
-          VLAN name and VLAN ID.
-      when: port_plan | default([]) | length == 0
-
-    - name: Stop when no node lists data ports
-      ansible.builtin.meta: end_play
-      when: port_plan | default([]) | length == 0
 
     - name: Validate the interface group name
       ansible.builtin.assert:

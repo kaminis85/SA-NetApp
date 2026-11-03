@@ -1,0 +1,284 @@
+# The SVM management LIF is svm_mgmt_lif_name, svm_mgmt_lif_address,
+# and svm_mgmt_lif_netmask.
+# One SVM has one management LIF, so each value is its own field.
+# The LIF is created only when those three fields are set, and the
+# interface group and in-band management VLAN are set.
+# The home port is created only on nodes that list data ports, so this task
+# fails when no node row lists data ports.
+# This task reads the node that hosts the SVM root volume.
+# Its home port is the in-band management VLAN, <interface group>-<VLAN ID>.
+# Those values are checked just before the LIF is created.
+- name: Create the SVM management LIF
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
+    ifgrp_name_normalized: "{{ ifgrp_name | default('') | string | trim | lower }}"
+    ib_mgmt_vlan_name_normalized: "{{ ib_mgmt_vlan_name | default('') | string | trim }}"
+    ib_mgmt_vlan_id_normalized: "{{ ib_mgmt_vlan_id | default('') | string | trim }}"
+    svm_mgmt_lif_name_normalized: "{{ svm_mgmt_lif_name | default('') | string | trim }}"
+    svm_mgmt_lif_address_normalized: "{{ svm_mgmt_lif_address | default('') | string | trim }}"
+    svm_mgmt_lif_netmask_normalized: "{{ svm_mgmt_lif_netmask | default('') | string | trim }}"
+    node_rows: >-
+      {{
+        [] if (node_specs | default('[]') | string | trim) in ['', '[]']
+        else (node_specs | from_json if node_specs is string else node_specs)
+      }}
+    ipv4_pattern: '^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$'
+    ipv4_netmasks:
+      - 255.0.0.0
+      - 255.128.0.0
+      - 255.192.0.0
+      - 255.224.0.0
+      - 255.240.0.0
+      - 255.248.0.0
+      - 255.252.0.0
+      - 255.254.0.0
+      - 255.255.0.0
+      - 255.255.128.0
+      - 255.255.192.0
+      - 255.255.224.0
+      - 255.255.240.0
+      - 255.255.248.0
+      - 255.255.252.0
+      - 255.255.254.0
+      - 255.255.255.0
+      - 255.255.255.128
+      - 255.255.255.192
+      - 255.255.255.224
+      - 255.255.255.240
+      - 255.255.255.248
+      - 255.255.255.252
+
+  tasks:
+
+    - name: Validate the SVM name
+      ansible.builtin.assert:
+        that:
+          - svm_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,40}$')
+        fail_msg: >-
+          SVM name must start with a letter or underscore, contain only
+          letters, numbers, underscores, hyphens, and periods, and be at most
+          41 characters.
+
+    - name: Validate svm_mgmt_lif_name
+      ansible.builtin.assert:
+        that:
+          - svm_mgmt_lif_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,254}$')
+        fail_msg: >-
+          svm_mgmt_lif_name must start with a letter or underscore and contain
+          only letters, numbers, underscores, hyphens, and periods.
+
+    - name: Validate svm_mgmt_lif_address
+      ansible.builtin.assert:
+        that:
+          - svm_mgmt_lif_address_normalized is match(ipv4_pattern)
+        fail_msg: svm_mgmt_lif_address must be an IPv4 address.
+
+    - name: Validate svm_mgmt_lif_netmask
+      ansible.builtin.assert:
+        that:
+          - svm_mgmt_lif_netmask_normalized in ipv4_netmasks
+        fail_msg: >-
+          svm_mgmt_lif_netmask must be a dotted IPv4 netmask, for example
+          255.255.255.0.
+
+    - name: Validate the interface group used by the SVM management LIF
+      ansible.builtin.assert:
+        that:
+          - ifgrp_name_normalized is match('^a(0|[1-9][0-9]{0,2})[a-z]$')
+        fail_msg: >-
+          The SVM management LIF home port uses the interface group name.
+          Example: a0a.
+
+    - name: Validate the in-band management VLAN name used by the SVM management LIF
+      ansible.builtin.assert:
+        that:
+          - ib_mgmt_vlan_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,63}$')
+          - ib_mgmt_vlan_name_normalized | lower not in ['default', 'cluster']
+        fail_msg: >-
+          The SVM management LIF home port uses the in-band management VLAN.
+          Enter a VLAN name that starts with a letter or underscore. Default
+          and Cluster already exist and cannot be used here.
+
+    - name: Validate the in-band management VLAN ID used by the SVM management LIF
+      ansible.builtin.assert:
+        that:
+          - ib_mgmt_vlan_id_normalized is match('^[1-9][0-9]{0,3}$')
+          - ib_mgmt_vlan_id_normalized | int <= 4094
+        fail_msg: >-
+          The SVM management LIF home port uses the in-band management VLAN ID.
+          Enter a VLAN ID from 1 to 4094. The home port is
+          <interface group>-<VLAN ID>, for example a0a-2235.
+
+    - name: Normalize node rows
+      ansible.builtin.set_fact:
+        node_plan: "{{ node_plan | default([]) + [normalized_row] }}"
+      vars:
+        ports_raw: "{{ item.ports | default(item['Data Ports'], true) | default('', true) }}"
+        normalized_row:
+          ports: >-
+            {{
+              (
+                ports_raw
+                if ports_raw is not string
+                else ports_raw.split(',') | map('trim') | reject('equalto', '') | list
+              ) | unique | list
+            }}
+      loop: "{{ node_rows }}"
+      loop_control:
+        label: "{{ item.node_name | default(item['Node Name'], true) | default('unnamed row', true) }}"
+
+    - name: Select nodes that list data ports
+      ansible.builtin.set_fact:
+        port_plan: "{{ port_plan | default([]) + [item] }}"
+      loop: "{{ node_plan | default([]) }}"
+      when: item.ports | length > 0
+      loop_control:
+        label: "{{ item.ports | join(',') }}"
+
+    - name: Validate that a node lists data ports for the SVM management LIF
+      ansible.builtin.assert:
+        that:
+          - port_plan | default([]) | length > 0
+        fail_msg: >-
+          The SVM management LIF home port is the in-band management VLAN
+          interface, and that interface is created only on nodes that list
+          data ports. Add data ports to a node row, or clear the SVM
+          management LIF fields to skip the LIF.
+
+    - name: Get the SVM root volume
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - storage/volumes
+        parameters:
+          name: "*root"
+          svm.name: "{{ svm_name_normalized }}"
+        fields:
+          - name
+          - aggregates
+          - is_svm_root
+      register: root_volume_info
+      no_log: true
+
+    - name: Select the SVM root volume
+      ansible.builtin.set_fact:
+        chosen_root_records: "{{ flagged_root_records if flagged_root_records | length > 0 else named_root_records }}"
+      vars:
+        volume_records: >-
+          {{
+            (root_volume_info.ontap_info.storage_volumes | default({})).records
+            | default([])
+          }}
+        flagged_root_records: >-
+          {{
+            volume_records
+            | selectattr('is_svm_root', 'defined')
+            | selectattr('is_svm_root')
+            | list
+          }}
+        named_root_records: >-
+          {{
+            volume_records
+            | selectattr('name', 'equalto', svm_name_normalized ~ '_root')
+            | list
+          }}
+
+    - name: Validate that the SVM root volume was found
+      ansible.builtin.assert:
+        that:
+          - chosen_root_records | length > 0
+        fail_msg: >-
+          Expected the SVM root volume on {{ svm_name_normalized }}.
+
+    - name: Record the SVM root volume and its aggregate
+      ansible.builtin.set_fact:
+        root_volume_name: "{{ chosen_root_records[0].name }}"
+        root_aggregate_name: "{{ ((chosen_root_records[0].aggregates | default([])) | first | default({})).name | default('') }}"
+
+    - name: Validate the SVM root volume aggregate
+      ansible.builtin.assert:
+        that:
+          - root_volume_name | default('') | length > 0
+          - root_aggregate_name | default('') | length > 0
+        fail_msg: >-
+          SVM root volume {{ root_volume_name | default('') }} did not report
+          an aggregate.
+
+    - name: Get the node that hosts the SVM root volume
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - storage/aggregates
+        parameters:
+          name: "{{ root_aggregate_name }}"
+        fields:
+          - name
+          - node
+      register: root_aggregate_info
+      no_log: true
+
+    - name: Validate the aggregate query for the SVM root volume
+      ansible.builtin.assert:
+        that:
+          - (root_aggregate_info.ontap_info.storage_aggregates | default({})).records | default([]) | length > 0
+        fail_msg: >-
+          Aggregate {{ root_aggregate_name }} was not found, so the node that
+          hosts the SVM root volume could not be read.
+
+    - name: Record the SVM root volume node
+      ansible.builtin.set_fact:
+        root_node_name: "{{ root_aggregate_info.ontap_info.storage_aggregates.records[0].node.name | default('') }}"
+
+    - name: Validate the SVM root volume node
+      ansible.builtin.assert:
+        that:
+          - root_node_name | default('') | length > 0
+        fail_msg: >-
+          Aggregate {{ root_aggregate_name }} did not report the node that
+          hosts the SVM root volume.
+
+    - name: Show the SVM management LIF plan
+      ansible.builtin.debug:
+        msg: >-
+          SVM management LIF {{ svm_mgmt_lif_name_normalized }} at
+          {{ svm_mgmt_lif_address_normalized }} netmask
+          {{ svm_mgmt_lif_netmask_normalized }} will be created on node
+          {{ root_node_name }}, home port
+          {{ ifgrp_name_normalized }}-{{ ib_mgmt_vlan_id_normalized }}.
+
+    # Home node is the node that hosts the SVM root volume, recorded above.
+    # Home port is the in-band management VLAN interface, for example a0a-2235.
+    - name: Create the SVM management LIF
+      netapp.ontap.na_ontap_interface:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        interface_name: "{{ svm_mgmt_lif_name_normalized }}"
+        service_policy: default-management
+        home_node: "{{ root_node_name }}"
+        home_port: "{{ ifgrp_name_normalized }}-{{ ib_mgmt_vlan_id_normalized }}"
+        address: "{{ svm_mgmt_lif_address_normalized }}"
+        netmask: "{{ svm_mgmt_lif_netmask_normalized }}"
+        admin_status: up
+        failover_policy: broadcast-domain-wide
+        is_auto_revert: true
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always

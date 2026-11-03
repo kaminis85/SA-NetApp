@@ -1,0 +1,486 @@
+# This task creates the load-sharing SnapMirror of the SVM root volume.
+# It creates the mirror volumes, then the job schedule, then the SnapMirror
+# relationship. Mirrors are placed on aggregates that are not on the root
+# volume's node. The relationship uses that schedule.
+# Both the job name and the job minutes are required. Clear both to skip
+# this task. Set only one and this task fails at the job schedule, after the
+# mirror volumes are created. The SVM is already created.
+- name: Create the SVM root load-sharing SnapMirror
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
+    job_name_normalized: "{{ job_name | default('') | string | trim }}"
+    job_minutes_normalized: "{{ job_minutes | default('') | string | trim }}"
+    node_rows: >-
+      {{
+        [] if (node_specs | default('[]') | string | trim) in ['', '[]']
+        else (node_specs | from_json if node_specs is string else node_specs)
+      }}
+    job_minute_tokens: >-
+      {{
+        job_minutes_normalized.split(',')
+        | map('trim')
+        | reject('equalto', '')
+        | list
+      }}
+
+  tasks:
+
+    - name: Validate the SVM name
+      ansible.builtin.assert:
+        that:
+          - svm_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,40}$')
+        fail_msg: >-
+          SVM name must start with a letter or underscore, contain only
+          letters, numbers, underscores, hyphens, and periods, and be at most
+          41 characters.
+
+    - name: Normalize node rows
+      ansible.builtin.set_fact:
+        node_plan: "{{ node_plan | default([]) + [normalized_row] }}"
+      vars:
+        normalized_row:
+          node_name: "{{ item.node_name | default(item['Node Name'], true) | default('', true) | trim }}"
+          aggregate_name: "{{ item.aggregate_name | default(item['Aggregate Name'], true) | default('', true) | trim }}"
+      loop: "{{ node_rows }}"
+      loop_control:
+        label: "{{ item.node_name | default(item['Node Name'], true) | default('unnamed row', true) }}"
+
+    - name: Build the aggregate list from the node rows
+      ansible.builtin.set_fact:
+        total_aggr_list: "{{ total_aggr_list | default([]) + [item.aggregate_name] }}"
+      loop: "{{ node_plan | default([]) }}"
+      when: item.aggregate_name | length > 0
+      loop_control:
+        label: "{{ item.aggregate_name }}"
+
+    - name: Get the SVM root volume
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - storage/volumes
+        parameters:
+          name: "*root"
+          svm.name: "{{ svm_name_normalized }}"
+        fields:
+          - name
+          - aggregates
+          - is_svm_root
+      register: root_volume_info
+      no_log: true
+
+    - name: Select the SVM root volume
+      ansible.builtin.set_fact:
+        chosen_root_records: "{{ flagged_root_records if flagged_root_records | length > 0 else named_root_records }}"
+      vars:
+        volume_records: >-
+          {{
+            (root_volume_info.ontap_info.storage_volumes | default({})).records
+            | default([])
+          }}
+        flagged_root_records: >-
+          {{
+            volume_records
+            | selectattr('is_svm_root', 'defined')
+            | selectattr('is_svm_root')
+            | list
+          }}
+        named_root_records: >-
+          {{
+            volume_records
+            | selectattr('name', 'equalto', svm_name_normalized ~ '_root')
+            | list
+          }}
+
+    - name: Validate that the SVM root volume was found
+      ansible.builtin.assert:
+        that:
+          - chosen_root_records | length > 0
+        fail_msg: >-
+          Expected the SVM root volume on {{ svm_name_normalized }}.
+
+    - name: Record the SVM root volume and its aggregate
+      ansible.builtin.set_fact:
+        root_volume_name: "{{ chosen_root_records[0].name }}"
+        root_aggregate_name: "{{ ((chosen_root_records[0].aggregates | default([])) | first | default({})).name | default('') }}"
+
+    - name: Validate the SVM root volume aggregate
+      ansible.builtin.assert:
+        that:
+          - root_volume_name | default('') | length > 0
+          - root_aggregate_name | default('') | length > 0
+        fail_msg: >-
+          SVM root volume {{ root_volume_name | default('') }} did not report
+          an aggregate.
+
+    - name: Get the node that hosts the SVM root volume
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - storage/aggregates
+        parameters:
+          name: "{{ root_aggregate_name }}"
+        fields:
+          - name
+          - node
+      register: root_aggregate_info
+      no_log: true
+
+    - name: Validate the aggregate query for the SVM root volume
+      ansible.builtin.assert:
+        that:
+          - (root_aggregate_info.ontap_info.storage_aggregates | default({})).records | default([]) | length > 0
+        fail_msg: >-
+          Aggregate {{ root_aggregate_name }} was not found, so the node that
+          hosts the SVM root volume could not be read.
+
+    - name: Record the SVM root volume node
+      ansible.builtin.set_fact:
+        root_node_name: "{{ root_aggregate_info.ontap_info.storage_aggregates.records[0].node.name | default('') }}"
+
+    - name: Validate the SVM root volume node
+      ansible.builtin.assert:
+        that:
+          - root_node_name | default('') | length > 0
+        fail_msg: >-
+          Aggregate {{ root_aggregate_name }} did not report the node that
+          hosts the SVM root volume.
+
+    - name: Validate that each node appears once
+      ansible.builtin.assert:
+        that:
+          - aggregate_rows | map(attribute='node_name') | unique | list | length == aggregate_rows | length
+        fail_msg: >-
+          Each node name can appear only once. Requested names:
+          {{ aggregate_rows | map(attribute='node_name') | join(', ') }}.
+      vars:
+        aggregate_rows: "{{ node_plan | default([]) | selectattr('aggregate_name') | list }}"
+      when: node_plan | default([]) | selectattr('aggregate_name') | list | length > 0
+
+    - name: Validate node names on rows that name an aggregate
+      ansible.builtin.assert:
+        that:
+          - item.node_name | length > 0
+        fail_msg: >-
+          Row {{ ansible_loop.index }} names aggregate {{ item.aggregate_name }}
+          and needs a node name.
+      loop: "{{ node_plan | default([]) }}"
+      when: item.aggregate_name | length > 0
+      loop_control:
+        extended: true
+        label: "{{ item.aggregate_name | default('row ' ~ ansible_loop.index) }}"
+
+    - name: Build the aggregate list for the SVM root volume node
+      ansible.builtin.set_fact:
+        aggr_list: "{{ aggr_list | default([]) + [item.aggregate_name] }}"
+      loop: "{{ node_plan | default([]) }}"
+      when:
+        - item.node_name == root_node_name
+        - item.aggregate_name | length > 0
+      loop_control:
+        label: "{{ item.node_name }}"
+
+    - name: Validate that the root volume node is one of the node rows
+      ansible.builtin.assert:
+        that:
+          - aggr_list | default([]) | length > 0
+        fail_msg: >-
+          The SVM root volume is on node {{ root_node_name }}, and none of the
+          node configuration rows name that node. Aggregate names on the rows:
+          {{ total_aggr_list | default([]) | join(', ') }}.
+
+    - name: Build the load-sharing mirror aggregate list
+      ansible.builtin.set_fact:
+        lsm_aggr_list: "{{ lsm_aggr_list | default([]) + [item] }}"
+      loop: "{{ total_aggr_list | default([]) }}"
+      when: item not in (aggr_list | default([]))
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Show the load-sharing mirror plan
+      ansible.builtin.debug:
+        msg: >-
+          Root volume {{ root_volume_name }} is on aggregate
+          {{ root_aggregate_name }} on node {{ root_node_name }}.
+          Aggregates on that node: {{ aggr_list | join(', ') }}.
+          Mirror aggregates: {{ lsm_aggr_list | default([]) | join(', ') }}.
+
+    - name: Note that every aggregate is on the SVM root volume node
+      ansible.builtin.debug:
+        msg: >-
+          Every aggregate from the node rows is on {{ root_node_name }}, which
+          hosts the SVM root volume. No load-sharing mirror was created.
+      when: lsm_aggr_list | default([]) | length == 0
+
+    - name: Build the load-sharing mirror volume names
+      ansible.builtin.set_fact:
+        lsm_vol_list: "{{ lsm_vol_list | default([]) + [root_volume_name ~ '_lsm0' ~ ('%x' | format(item))] }}"
+      loop: "{{ range(1, (lsm_aggr_list | default([]) | length) + 1) | list }}"
+      when: lsm_aggr_list | default([]) | length > 0
+      loop_control:
+        label: "{{ root_volume_name }}_lsm0{{ '%x' | format(item) }}"
+
+    # An LS destination is created as type dp. The SnapMirror relationship then
+    # changes it to type ls, and ONTAP rejects changing that type again. Create
+    # a volume only when that name is not already present.
+    - name: Read existing load-sharing mirror volumes
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - storage/volumes
+        parameters:
+          name: "{{ root_volume_name }}_lsm0*"
+          svm.name: "{{ svm_name_normalized }}"
+        fields:
+          - name
+          - type
+          - aggregates
+      register: lsm_volume_info
+      when: lsm_vol_list | default([]) | length > 0
+      no_log: true
+
+    - name: Record existing load-sharing mirror volumes
+      ansible.builtin.set_fact:
+        lsm_existing_volumes: "{{ lsm_existing_volumes | default([]) + [row] }}"
+      vars:
+        row:
+          name: "{{ item.name | default('') }}"
+          volume_type: "{{ item.type | default('') | lower }}"
+          aggregate_name: "{{ ((item.aggregates | default([])) | first | default({})).name | default('') }}"
+      loop: "{{ (lsm_volume_info.ontap_info.storage_volumes | default({})).records | default([]) }}"
+      when:
+        - lsm_vol_list | default([]) | length > 0
+        - item.name | default('') in lsm_vol_list
+      loop_control:
+        label: "{{ item.name | default('unnamed volume') }}"
+
+    - name: Validate existing load-sharing mirror volumes
+      ansible.builtin.assert:
+        that:
+          - matched | length == 1
+          - matched[0].volume_type in ['dp', 'ls']
+          - matched[0].aggregate_name == item.0
+        fail_msg: >-
+          Load-sharing mirror volume {{ item.1 }} already exists as type
+          {{ matched[0].volume_type | default('unknown') }} on aggregate
+          {{ matched[0].aggregate_name | default('unknown') }}. Expected type
+          dp or ls on {{ item.0 }}.
+      vars:
+        matched: "{{ lsm_existing_volumes | default([]) | selectattr('name', 'equalto', item.1) | list }}"
+      loop: "{{ lsm_aggr_list | default([]) | zip(lsm_vol_list | default([])) | list }}"
+      when:
+        - lsm_vol_list | default([]) | length > 0
+        - item.1 in (lsm_existing_volumes | default([]) | map(attribute='name') | list)
+      loop_control:
+        label: "{{ item.1 }} on {{ item.0 }}"
+
+    - name: Choose load-sharing mirror volumes that do not exist yet
+      ansible.builtin.set_fact:
+        lsm_volumes_to_create: "{{ lsm_volumes_to_create | default([]) + [[item.0, item.1]] }}"
+      vars:
+        existing_names: "{{ lsm_existing_volumes | default([]) | map(attribute='name') | list }}"
+      loop: "{{ lsm_aggr_list | default([]) | zip(lsm_vol_list | default([])) | list }}"
+      when:
+        - lsm_vol_list | default([]) | length > 0
+        - item.1 not in existing_names
+      loop_control:
+        label: "{{ item.1 }} on {{ item.0 }}"
+
+    - name: Show the load-sharing mirror volume plan
+      ansible.builtin.debug:
+        msg: >-
+          Volumes to create:
+          {{ lsm_volumes_to_create | default([]) | map('last') | join(', ') if (lsm_volumes_to_create | default([]) | length > 0) else 'none' }}.
+          Volumes already present:
+          {{ lsm_existing_volumes | default([]) | map(attribute='name') | join(', ') if (lsm_existing_volumes | default([]) | length > 0) else 'none' }}.
+      when: lsm_vol_list | default([]) | length > 0
+
+    - name: Create the load-sharing mirror volumes of the SVM root volume
+      netapp.ontap.na_ontap_volume:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        name: "{{ item.1 }}"
+        aggregate_name: "{{ item.0 }}"
+        size: 1
+        size_unit: gb
+        type: DP
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      loop: "{{ lsm_volumes_to_create | default([]) }}"
+      when: lsm_volumes_to_create | default([]) | length > 0
+      loop_control:
+        label: "{{ item.1 }} on {{ item.0 }}"
+
+    - name: Validate that the job name and minutes are both set
+      ansible.builtin.assert:
+        that:
+          - job_name_normalized | length > 0
+          - job_minutes_normalized | length > 0
+        fail_msg: >-
+          Both the job name and the job minutes are required for the
+          load-sharing SnapMirror schedule.
+
+    - name: Validate the job name
+      ansible.builtin.assert:
+        that:
+          - job_name_normalized is match('^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$')
+        fail_msg: >-
+          Job name must start with a letter, number, or underscore and contain
+          only letters, numbers, underscores, hyphens, and periods.
+
+    - name: Validate the job minutes
+      ansible.builtin.assert:
+        that:
+          - job_minute_tokens | length > 0
+          - item is match('^[0-5]?[0-9]$')
+        fail_msg: >-
+          Job minutes must be whole numbers from 0 to 59, separated by commas.
+          Example: 0,15,30,45.
+      loop: "{{ job_minute_tokens }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Read the job minutes
+      ansible.builtin.set_fact:
+        job_minute_list: "{{ job_minute_tokens | map('int') | list }}"
+
+    - name: Validate that each job minute is unique
+      ansible.builtin.assert:
+        that:
+          - job_minute_list | unique | list | length == job_minute_list | length
+        fail_msg: >-
+          Job minutes must be unique. Requested minutes:
+          {{ job_minute_list | join(', ') }}.
+
+    - name: Create the job schedule for the SVM root volume SnapMirror
+      netapp.ontap.na_ontap_job_schedule:
+        state: present
+        name: "{{ job_name_normalized }}"
+        job_minutes: "{{ job_minute_list }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+
+    # The public SnapMirror REST API rejects a load-sharing relationship, and the
+    # ZAPI module needs the netapp-lib package. The private CLI path does neither.
+    - name: Read load-sharing SnapMirror relationships for the SVM root volume
+      netapp.ontap.na_ontap_rest_cli:
+        command: snapmirror
+        verb: GET
+        params:
+          source-path: "{{ svm_name_normalized }}:{{ root_volume_name }}"
+          fields: destination-path,state
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      register: lsm_snapmirror_info
+      when: lsm_vol_list | default([]) | length > 0
+
+    - name: Record existing load-sharing destinations
+      ansible.builtin.set_fact:
+        lsm_relationship_rows: "{{ lsm_relationship_rows | default([]) + [row] }}"
+      vars:
+        destination_path: "{{ item['destination-path'] | default(item['destination_path'] | default('')) }}"
+        row:
+          # CLI returns cluster://svm/volume. svm:volume is the other form.
+          # The volume name is the last segment of either path.
+          volume: "{{ destination_path | regex_replace('^.*[:/]', '') }}"
+          mirror_state: "{{ (item['state'] | default(item['mirror-state'] | default(item['mirror_state'] | default('')))) | lower }}"
+      loop: "{{ (lsm_snapmirror_info.msg | default({})).records | default([]) }}"
+      when: lsm_vol_list | default([]) | length > 0
+      loop_control:
+        label: "{{ item['destination-path'] | default(item['destination_path'] | default('unknown destination')) }}"
+
+    - name: Choose load-sharing mirrors that do not have a relationship yet
+      ansible.builtin.set_fact:
+        lsm_missing_volumes: "{{ lsm_vol_list | difference(existing_volumes) }}"
+      vars:
+        existing_volumes: "{{ lsm_relationship_rows | default([]) | map(attribute='volume') | list }}"
+      when: lsm_vol_list | default([]) | length > 0
+
+    - name: Decide whether the load-sharing mirrors need to be initialized
+      ansible.builtin.set_fact:
+        lsm_needs_initialize: "{{ pending_volumes | length > 0 }}"
+      vars:
+        initialized_volumes: >-
+          {{
+            lsm_relationship_rows | default([])
+            | selectattr('mirror_state', 'equalto', 'snapmirrored')
+            | map(attribute='volume')
+            | list
+          }}
+        pending_volumes: "{{ lsm_vol_list | difference(initialized_volumes) }}"
+      when: lsm_vol_list | default([]) | length > 0
+
+    - name: Show the load-sharing SnapMirror plan
+      ansible.builtin.debug:
+        msg: >-
+          Source {{ svm_name_normalized }}:{{ root_volume_name }}.
+          Relationships to create:
+          {{ lsm_missing_volumes | default([]) | join(', ') if (lsm_missing_volumes | default([]) | length > 0) else 'none' }}.
+          Initialize the load-sharing set:
+          {{ 'yes' if (lsm_needs_initialize | default(false) | bool) else 'no' }}.
+      when: lsm_vol_list | default([]) | length > 0
+
+    - name: Create the load-sharing SnapMirror relationship
+      netapp.ontap.na_ontap_rest_cli:
+        command: snapmirror
+        verb: POST
+        body:
+          source-path: "{{ svm_name_normalized }}:{{ root_volume_name }}"
+          destination-path: "{{ svm_name_normalized }}:{{ item }}"
+          type: LS
+          schedule: "{{ job_name_normalized }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      loop: "{{ lsm_missing_volumes | default([]) }}"
+      when: lsm_missing_volumes | default([]) | length > 0
+      loop_control:
+        label: "{{ svm_name_normalized }}:{{ item }}"
+
+    - name: Initialize the load-sharing SnapMirror set
+      netapp.ontap.na_ontap_rest_cli:
+        command: snapmirror/initialize-ls-set
+        verb: POST
+        body:
+          source-path: "{{ svm_name_normalized }}:{{ root_volume_name }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      when:
+        - lsm_vol_list | default([]) | length > 0
+        - lsm_needs_initialize | default(false) | bool

@@ -1,0 +1,32 @@
+# The IPspace name is checked just before the IPspace is created.
+# Broadcast domains and VLAN interfaces are separate tasks.
+- name: Create the ONTAP IPspace
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ipspace_name_normalized: "{{ ipspace_name | default('') | string | trim }}"
+
+  tasks:
+
+    - name: Validate the IPspace name
+      ansible.builtin.assert:
+        that:
+          - ipspace_name_normalized | length > 0
+          - ipspace_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,63}$')
+          - ipspace_name_normalized | lower not in ['default', 'cluster']
+        fail_msg: >-
+          IPspace name must start with a letter or underscore and contain only
+          letters, numbers, underscores, hyphens, and periods. Default and
+          Cluster already exist and cannot be used here.
+
+    - name: Create the IPspace
+      netapp.ontap.na_ontap_ipspace:
+        state: present
+        name: "{{ ipspace_name_normalized }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always

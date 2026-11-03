@@ -1,0 +1,37 @@
+# The SVM login banner is checked with this task.
+# Leave it blank and this task stays skipped.
+- name: Create the SVM login banner
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
+    svm_login_banner_normalized: "{{ svm_login_banner | default('') | string | trim }}"
+
+  tasks:
+
+    - name: Validate the SVM name
+      ansible.builtin.assert:
+        that:
+          - svm_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,40}$')
+        fail_msg: >-
+          SVM name must start with a letter or underscore, contain only
+          letters, numbers, underscores, hyphens, and periods, and be at most
+          41 characters.
+
+    - name: Validate the SVM login banner
+      ansible.builtin.assert:
+        that:
+          - svm_login_banner_normalized | length > 0
+        fail_msg: Provide svm_login_banner.
+
+    - name: Create the SVM login banner
+      netapp.ontap.na_ontap_login_messages:
+        vserver: "{{ svm_name_normalized }}"
+        banner: "{{ svm_login_banner_normalized }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
