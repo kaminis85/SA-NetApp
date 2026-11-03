@@ -529,54 +529,6 @@
           Aggregate {{ root_aggregate_name }} did not report the node that
           hosts the SVM root volume.
 
-    - name: Show the SVM management LIF plan
-      ansible.builtin.debug:
-        msg: >-
-          SVM management LIF {{ svm_mgmt_lif_plan.lif_name }} at
-          {{ svm_mgmt_lif_plan.address }} netmask
-          {{ svm_mgmt_lif_plan.netmask }} will be created on node
-          {{ root_node_name }}, home port
-          {{ ifgrp_name_normalized }}-{{ ib_mgmt_vlan_id_normalized }}.
-          The SVM default route gateway is {{ svm_mgmt_lif_plan.gateway }}.
-      when: svm_mgmt_lif_requested | bool
-
-    # Home node is the node that hosts the SVM root volume, recorded above.
-    # Home port is the in-band management VLAN interface, for example a0a-2235.
-    - name: Create the SVM management LIF
-      netapp.ontap.na_ontap_interface:
-        state: present
-        vserver: "{{ svm_name_normalized }}"
-        interface_name: "{{ svm_mgmt_lif_plan.lif_name }}"
-        service_policy: default-management
-        home_node: "{{ root_node_name }}"
-        home_port: "{{ ifgrp_name_normalized }}-{{ ib_mgmt_vlan_id_normalized }}"
-        address: "{{ svm_mgmt_lif_plan.address }}"
-        netmask: "{{ svm_mgmt_lif_plan.netmask }}"
-        admin_status: up
-        failover_policy: broadcast-domain-wide
-        is_auto_revert: true
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
-        use_rest: always
-      when: svm_mgmt_lif_requested | bool
-
-    - name: Create the default route on the SVM
-      netapp.ontap.na_ontap_net_routes:
-        state: present
-        vserver: "{{ svm_name_normalized }}"
-        destination: 0.0.0.0/0
-        gateway: "{{ svm_mgmt_lif_plan.gateway }}"
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
-        use_rest: always
-      when: svm_mgmt_lif_requested | bool
-
     - name: Build the aggregate list for the SVM root volume node
       ansible.builtin.set_fact:
         aggr_list: "{{ aggr_list | default([]) + [item.aggregate_name] }}"
@@ -921,6 +873,54 @@
         validate_certs: false
         use_rest: always
       when: svm_login_banner_normalized | length > 0
+
+    - name: Show the SVM management LIF plan
+      ansible.builtin.debug:
+        msg: >-
+          SVM management LIF {{ svm_mgmt_lif_plan.lif_name }} at
+          {{ svm_mgmt_lif_plan.address }} netmask
+          {{ svm_mgmt_lif_plan.netmask }} will be created on node
+          {{ root_node_name }}, home port
+          {{ ifgrp_name_normalized }}-{{ ib_mgmt_vlan_id_normalized }}.
+          The SVM default route gateway is {{ svm_mgmt_lif_plan.gateway }}.
+      when: svm_mgmt_lif_requested | bool
+
+    # Home node is the node that hosts the SVM root volume, recorded above.
+    # Home port is the in-band management VLAN interface, for example a0a-2235.
+    - name: Create the SVM management LIF
+      netapp.ontap.na_ontap_interface:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        interface_name: "{{ svm_mgmt_lif_plan.lif_name }}"
+        service_policy: default-management
+        home_node: "{{ root_node_name }}"
+        home_port: "{{ ifgrp_name_normalized }}-{{ ib_mgmt_vlan_id_normalized }}"
+        address: "{{ svm_mgmt_lif_plan.address }}"
+        netmask: "{{ svm_mgmt_lif_plan.netmask }}"
+        admin_status: up
+        failover_policy: broadcast-domain-wide
+        is_auto_revert: true
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      when: svm_mgmt_lif_requested | bool
+
+    - name: Create the default route on the SVM
+      netapp.ontap.na_ontap_net_routes:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        destination: 0.0.0.0/0
+        gateway: "{{ svm_mgmt_lif_plan.gateway }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+      when: svm_mgmt_lif_requested | bool
 
     - name: Note that SVM DNS was left blank
       ansible.builtin.debug:
