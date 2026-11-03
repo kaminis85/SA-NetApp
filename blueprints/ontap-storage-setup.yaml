@@ -16,11 +16,11 @@ description: >-
   aggregate names from the node rows. Protocols are nfs, iscsi, or both.
   The job schedule defaults to 15min at minutes 0, 15, 30, and 45. Clear the
   SVM name to skip it.
-  SVM mgmt. LIF is one row with a LIF name, address, netmask, and gateway.
-  That LIF is created on the node that hosts the SVM root volume. Its home
-  port is the in-band management VLAN interface, for example a0a-2235. The
-  gateway is the SVM default route. Leave that row empty to skip the LIF
-  and the route.
+  SVM management LIF is lif_name, address, netmask, and gateway on the SVM
+  configuration section. One SVM has one management LIF. That LIF is created
+  on the node that hosts the SVM root volume. Its home port is the in-band
+  management VLAN interface, for example a0a-2235. The gateway is the SVM
+  default route. Leave those four fields blank to skip the LIF and the route.
   Fibre Channel, NVMe, and S3 are not included.
 
 instructions:
@@ -191,11 +191,10 @@ customization:
               - name: job_minutes
               - name: vsadmin_password
               - name: svm_login_banner
-          - name: SVM mgmt. LIF
-            inputs:
-              - name: svm_mgmt_lif
-                type: object
-                header: LIF Name,Address,Netmask,Gateway
+              - name: lif_name
+              - name: address
+              - name: netmask
+              - name: gateway
 
 inputs:
   agent:
@@ -471,20 +470,38 @@ inputs:
     type: string
     default: ""
     description: Login banner text for the SVM. Leave this blank to skip the SVM banner.
-  svm_mgmt_lif:
+  lif_name:
     type: string
-    default: "[]"
+    default: ""
     description: >-
-      SVM management LIF. One row with the LIF name, address, netmask, and
-      gateway. Example: LIF name svm-mgmt, address 10.102.2.50, netmask
-      255.255.255.0, gateway 10.102.2.254. The LIF is created on the node that
-      hosts the SVM root volume, with service policy default-management,
-      admin status up, failover policy broadcast-domain-wide, and auto-revert
-      enabled. The home port is the in-band management VLAN interface, formed
-      from the interface group name and the in-band management VLAN ID, for
-      example a0a-2235. The gateway is the SVM default route to 0.0.0.0/0.
-      Leave this table empty to skip the LIF and the default route. A blank
-      row keeps Finish disabled.
+      SVM management LIF name. One management LIF per SVM, so this is a single
+      field, along with address, netmask, and gateway. Example: svm-mgmt.
+      The LIF is created on the node that hosts the SVM root volume, with
+      service policy default-management, admin status up, failover policy
+      broadcast-domain-wide, and auto-revert enabled. The home port is the
+      in-band management VLAN interface, formed from the interface group name
+      and the in-band management VLAN ID, for example a0a-2235. Leave lif_name,
+      address, netmask, and gateway blank to skip the LIF and the default
+      route. Fill in all four to create them.
+  address:
+    type: string
+    default: ""
+    description: >-
+      SVM management LIF IPv4 address. Example: 10.102.2.50. Fill this in
+      together with lif_name, netmask, and gateway.
+  netmask:
+    type: string
+    default: ""
+    description: >-
+      SVM management LIF netmask. Example: 255.255.255.0. Fill this in
+      together with lif_name, address, and gateway.
+  gateway:
+    type: string
+    default: ""
+    description: >-
+      SVM management LIF gateway. Example: 10.102.2.254. This is the SVM
+      default route to 0.0.0.0/0. Fill this in together with lif_name,
+      address, and netmask.
 
 grains:
   update_cluster_location:
@@ -881,4 +898,7 @@ grains:
         - ifgrp_name: '{{ .inputs.ifgrp_name }}'
         - ib_mgmt_vlan_name: '{{ .inputs.ib_mgmt_vlan_name }}'
         - ib_mgmt_vlan_id: '{{ .inputs.ib_mgmt_vlan_id }}'
-        - svm_mgmt_lif: '{{ .inputs.svm_mgmt_lif }}'
+        - lif_name: '{{ .inputs.lif_name }}'
+        - address: '{{ .inputs.address }}'
+        - netmask: '{{ .inputs.netmask }}'
+        - gateway: '{{ .inputs.gateway }}'
