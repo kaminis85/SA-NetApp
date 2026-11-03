@@ -16,14 +16,14 @@ description: >-
   aggregate names from the node rows. Protocols are nfs, iscsi, or both.
   The job schedule defaults to 15min at minutes 0, 15, 30, and 45. Clear the
   SVM name to skip it.
-  SVM management LIF is one optional row on the SVM configuration section,
-  with lif_name, address, netmask, and gateway. The table starts empty, the
-  same way node configuration does. One SVM has one management LIF.
-  That LIF is created on the node that hosts the SVM root volume when
-  lif_name, address, and netmask are all filled in. Its home port is the
-  in-band management VLAN interface, for example a0a-2235. The gateway is
-  the SVM default route and is skipped on its own when left blank. Leave
-  the SVM name blank to skip the LIF and the route.
+  SVM management LIF is four fields on the SVM configuration section:
+  SVM management LIF name, address, netmask, and gateway. One SVM has one
+  management LIF, so each value is its own field. That LIF is created on
+  the node that hosts the SVM root volume when the name, address, and
+  netmask are all filled in. Its home port is the in-band management VLAN
+  interface, for example a0a-2235. The gateway is the SVM default route
+  and is skipped on its own when left blank. Leave the SVM name blank to
+  skip the LIF and the route.
   SVM DNS is svm_dns_domain and svm_dns_servers. Fill in both to configure DNS
   on the SVM. Leave both blank to skip it. Cluster DNS still uses
   dns_domain_name and dns_servers.
@@ -197,10 +197,14 @@ customization:
               - name: job_minutes
               - name: vsadmin_password
               - name: svm_login_banner
-              - name: svm_mgmt_lif
-                type: object
-                display_name: SVM management LIF
-                header: lif_name,address,netmask,gateway
+              - name: svm_mgmt_lif_name
+                display_name: SVM management LIF name
+              - name: svm_mgmt_lif_address
+                display_name: SVM management LIF address
+              - name: svm_mgmt_lif_netmask
+                display_name: SVM management LIF netmask
+              - name: svm_mgmt_lif_gateway
+                display_name: SVM management LIF gateway
               - name: svm_dns_servers
               - name: svm_dns_domain
 
@@ -478,27 +482,40 @@ inputs:
     type: string
     default: ""
     description: Login banner text for the SVM. Leave this blank to skip the SVM banner.
-  svm_mgmt_lif:
+  svm_mgmt_lif_name:
     type: string
-    default: "[]"
+    default: ""
     description: >-
-      One optional row for the SVM management LIF. The table starts empty.
-      Add a row only when this SVM needs a management LIF. Columns are
-      lif_name, address, netmask, and gateway. Example: lif_name svm-mgmt,
-      address 10.102.2.50, netmask 255.255.255.0, gateway 10.102.2.254.
-      One SVM has one management LIF, so add a single row. A second row is
-      rejected. Leave the table empty to skip the LIF and the default route.
-      A blank row keeps Finish disabled. The LIF is created when lif_name,
-      address, and netmask are all filled in, together with the interface
-      group name and the in-band management VLAN name and VLAN ID. If
-      lif_name, address, or netmask is blank, LIF creation is skipped. If
-      the gateway is blank, the default route is skipped. Leave the SVM name
-      blank to skip both.
-      The LIF is created on the node that hosts the SVM root volume, with
-      service policy default-management, admin status up, failover policy
-      broadcast-domain-wide, and auto-revert enabled. The home port is the
-      in-band management VLAN interface, for example a0a-2235. The gateway is
-      the SVM default route to 0.0.0.0/0.
+      Name of the SVM management LIF. One SVM has one management LIF, so this
+      is a single field. Example: svm-mgmt. The name starts with a letter or
+      underscore. The LIF is created on the node that hosts the SVM root
+      volume, with service policy default-management, admin status up,
+      failover policy broadcast-domain-wide, and auto-revert enabled. The
+      home port is the in-band management VLAN interface, for example
+      a0a-2235. Fill this in together with the SVM management LIF address and
+      netmask. Leave it blank to skip the LIF.
+  svm_mgmt_lif_address:
+    type: string
+    default: ""
+    description: >-
+      IPv4 address of the SVM management LIF. Example: 10.102.2.50. Fill this
+      in together with the SVM management LIF name and netmask. Leave it
+      blank to skip the LIF.
+  svm_mgmt_lif_netmask:
+    type: string
+    default: ""
+    description: >-
+      Subnet mask of the SVM management LIF, in dotted decimal form. Example:
+      255.255.255.0. Fill this in together with the SVM management LIF name
+      and address. Leave it blank to skip the LIF.
+  svm_mgmt_lif_gateway:
+    type: string
+    default: ""
+    description: >-
+      IPv4 gateway for the SVM management LIF. Example: 10.102.2.254. This
+      becomes the SVM default route to 0.0.0.0/0. It must be different from
+      the SVM management LIF address. Leave it blank to skip the default
+      route. The LIF can still be created without it.
   svm_dns_servers:
     type: string
     default: ""
@@ -910,6 +927,9 @@ grains:
         - ifgrp_name: '{{ .inputs.ifgrp_name }}'
         - ib_mgmt_vlan_name: '{{ .inputs.ib_mgmt_vlan_name }}'
         - ib_mgmt_vlan_id: '{{ .inputs.ib_mgmt_vlan_id }}'
-        - svm_mgmt_lif: '{{ .inputs.svm_mgmt_lif }}'
+        - svm_mgmt_lif_name: '{{ .inputs.svm_mgmt_lif_name }}'
+        - svm_mgmt_lif_address: '{{ .inputs.svm_mgmt_lif_address }}'
+        - svm_mgmt_lif_netmask: '{{ .inputs.svm_mgmt_lif_netmask }}'
+        - svm_mgmt_lif_gateway: '{{ .inputs.svm_mgmt_lif_gateway }}'
         - svm_dns_servers: '{{ .inputs.svm_dns_servers }}'
         - svm_dns_domain: '{{ .inputs.svm_dns_domain }}'

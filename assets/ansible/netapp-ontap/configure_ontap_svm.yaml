@@ -6,13 +6,11 @@
 # iscsi starts the iSCSI service.
 # The job schedule drives the load-sharing SnapMirror of the SVM root volume.
 # Mirrors are placed on aggregates that are not on the root volume's node.
-# The SVM management LIF is one optional row: lif_name, address, netmask, and gateway.
-# The table starts empty. One SVM has one management LIF.
-# A second row is rejected.
-# No row skips the LIF and the default route.
-# Blank lif_name, address, or netmask skips the LIF.
+# The SVM management LIF is four fields: name, address, netmask, and gateway.
+# One SVM has one management LIF, so each value is its own field.
+# Blank name, address, or netmask skips the LIF.
 # A blank gateway skips the default route.
-# The LIF is created only when the SVM name, lif_name, address, and netmask
+# The LIF is created only when the SVM name, LIF name, address, and netmask
 # are set, and the interface group and in-band management VLAN are set.
 # The default route is created only when the SVM name and gateway are set.
 # It is created on the node that hosts the SVM root volume.
@@ -36,22 +34,11 @@
     ifgrp_name_normalized: "{{ ifgrp_name | default('') | string | trim | lower }}"
     ib_mgmt_vlan_name_normalized: "{{ ib_mgmt_vlan_name | default('') | string | trim }}"
     ib_mgmt_vlan_id_normalized: "{{ ib_mgmt_vlan_id | default('') | string | trim }}"
-    raw_svm_mgmt_lif: "{{ svm_mgmt_lif | default('[]') }}"
-    decoded_svm_mgmt_lif: >-
-      {{
-        [] if (raw_svm_mgmt_lif | string | trim) in ['', '[]', '{}']
-        else (
-          raw_svm_mgmt_lif | from_json
-          if raw_svm_mgmt_lif is string
-          else raw_svm_mgmt_lif
-        )
-      }}
-    svm_mgmt_lif_rows: >-
-      {{
-        [decoded_svm_mgmt_lif]
-        if decoded_svm_mgmt_lif is mapping
-        else decoded_svm_mgmt_lif
-      }}
+    svm_mgmt_lif_plan:
+      lif_name: "{{ svm_mgmt_lif_name | default('') | string | trim }}"
+      address: "{{ svm_mgmt_lif_address | default('') | string | trim }}"
+      netmask: "{{ svm_mgmt_lif_netmask | default('') | string | trim }}"
+      gateway: "{{ svm_mgmt_lif_gateway | default('') | string | trim }}"
     svm_dns_domain_normalized: "{{ svm_dns_domain | default('') | string | trim }}"
     svm_dns_servers_normalized: "{{ svm_dns_servers | default('') | string | trim }}"
     svm_dns_server_list: >-
@@ -269,26 +256,6 @@
           {{ job_minute_list | join(', ') }}.
       when: job_name_normalized | length > 0
 
-    - name: Validate that the SVM management LIF has one row at most
-      ansible.builtin.assert:
-        that:
-          - svm_mgmt_lif_rows is not string
-          - svm_mgmt_lif_rows is sequence
-          - svm_mgmt_lif_rows | length <= 1
-        fail_msg: >-
-          SVM management LIF accepts one row. Requested rows:
-          {{ svm_mgmt_lif_rows | length }}.
-
-    - name: Read the SVM management LIF row
-      ansible.builtin.set_fact:
-        svm_mgmt_lif_plan:
-          lif_name: "{{ lif_row.lif_name | default(lif_row['LIF Name'], true) | default('', true) | string | trim }}"
-          address: "{{ lif_row.address | default(lif_row['Address'], true) | default('', true) | string | trim }}"
-          netmask: "{{ lif_row.netmask | default(lif_row['Netmask'], true) | default('', true) | string | trim }}"
-          gateway: "{{ lif_row.gateway | default(lif_row['Gateway'], true) | default('', true) | string | trim }}"
-      vars:
-        lif_row: "{{ svm_mgmt_lif_rows[0] if (svm_mgmt_lif_rows | length == 1) else {} }}"
-
     - name: Validate the SVM management LIF name
       ansible.builtin.assert:
         that:
@@ -394,8 +361,8 @@
     - name: Note that the SVM management LIF was skipped
       ansible.builtin.debug:
         msg: >-
-          lif_name, address, or netmask is blank, so SVM management LIF
-          creation was skipped.
+          SVM management LIF name, address, or netmask is blank, so SVM
+          management LIF creation was skipped.
       when:
         - svm_mgmt_lif_plan.lif_name | length == 0
           or svm_mgmt_lif_plan.address | length == 0
@@ -416,7 +383,9 @@
 
     - name: Note that the SVM default route was skipped
       ansible.builtin.debug:
-        msg: The gateway is blank, so the SVM default route was skipped.
+        msg: >-
+          The SVM management LIF gateway is blank, so the SVM default route
+          was skipped.
       when: svm_mgmt_lif_plan.gateway | length == 0
 
     - name: Validate that the SVM DNS domain and servers are both set or both blank
