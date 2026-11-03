@@ -16,6 +16,11 @@ description: >-
   aggregate names from the node rows. Protocols are nfs, iscsi, or both.
   The job schedule defaults to 15min at minutes 0, 15, 30, and 45. Clear the
   SVM name to skip it.
+  SVM mgmt. LIF is one row with a LIF name, address, netmask, and gateway.
+  That LIF is created on the node that hosts the SVM root volume. Its home
+  port is the in-band management VLAN interface, for example a0a-2235. The
+  gateway is the SVM default route. Leave that row empty to skip the LIF
+  and the route.
   Fibre Channel, NVMe, and S3 are not included.
 
 instructions:
@@ -186,6 +191,11 @@ customization:
               - name: job_minutes
               - name: vsadmin_password
               - name: svm_login_banner
+          - name: SVM mgmt. LIF
+            inputs:
+              - name: svm_mgmt_lif
+                type: object
+                header: LIF Name,Address,Netmask,Gateway
 
 inputs:
   agent:
@@ -420,7 +430,8 @@ inputs:
       underscore. The SVM is created in the IPspace from Network Configuration,
       and the aggregate names from the node rows are assigned to it. Leave
       this blank to skip SVM creation, the protocol services, the job schedule,
-      the load-sharing SnapMirror, vsadmin, and the SVM login banner.
+      the load-sharing SnapMirror, the SVM management LIF, the default route,
+      vsadmin, and the SVM login banner.
   allowed_protocols:
     type: string
     style: multi-select
@@ -460,6 +471,20 @@ inputs:
     type: string
     default: ""
     description: Login banner text for the SVM. Leave this blank to skip the SVM banner.
+  svm_mgmt_lif:
+    type: string
+    default: "[]"
+    description: >-
+      SVM management LIF. One row with the LIF name, address, netmask, and
+      gateway. Example: LIF name svm-mgmt, address 10.102.2.50, netmask
+      255.255.255.0, gateway 10.102.2.254. The LIF is created on the node that
+      hosts the SVM root volume, with service policy default-management,
+      admin status up, failover policy broadcast-domain-wide, and auto-revert
+      enabled. The home port is the in-band management VLAN interface, formed
+      from the interface group name and the in-band management VLAN ID, for
+      example a0a-2235. The gateway is the SVM default route to 0.0.0.0/0.
+      Leave this table empty to skip the LIF and the default route. A blank
+      row keeps Finish disabled.
 
 grains:
   update_cluster_location:
@@ -853,3 +878,7 @@ grains:
         - job_minutes: '{{ .inputs.job_minutes }}'
         - vsadmin_password: '{{ .inputs.vsadmin_password }}'
         - svm_login_banner: '{{ .inputs.svm_login_banner }}'
+        - ifgrp_name: '{{ .inputs.ifgrp_name }}'
+        - ib_mgmt_vlan_name: '{{ .inputs.ib_mgmt_vlan_name }}'
+        - ib_mgmt_vlan_id: '{{ .inputs.ib_mgmt_vlan_id }}'
+        - svm_mgmt_lif: '{{ .inputs.svm_mgmt_lif }}'
