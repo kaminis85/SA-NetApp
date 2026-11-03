@@ -6,12 +6,6 @@
 
   tasks:
 
-    - name: Validate the cluster name
-      ansible.builtin.assert:
-        that:
-          - cluster_name | default('') | length > 0
-        fail_msg: Provide cluster_name.
-
     # The cluster default-management policy is cluster-scoped in the Default
     # IPspace. Read the public REST object because private CLI show output
     # does not include the service list unless fields are requested explicitly.
@@ -75,6 +69,13 @@
             'management-http' in (default_management_policy.services | default([]))
             or 'management_http' in (default_management_policy.services | default([]))
           }}
+
+    - name: Validate the cluster name
+      ansible.builtin.assert:
+        that:
+          - cluster_name | default('') | length > 0
+        fail_msg: Provide cluster_name.
+      when: http_management_enabled | bool
 
     - name: Remove HTTP from the default-management service policy
       netapp.ontap.na_ontap_rest_cli:

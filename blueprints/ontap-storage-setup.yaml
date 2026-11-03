@@ -14,8 +14,9 @@ description: >-
   when its VLAN name or VLAN ID is blank.
   An SVM is created when its name is filled in. It uses that IPspace and the
   aggregate names from the node rows. Protocols are nfs, iscsi, or both.
-  The job schedule defaults to 15min at minutes 0, 15, 30, and 45. Clear the
-  SVM name to skip it.
+  The job schedule defaults to 15min at minutes 0, 15, 30, and 45. Clear both
+  the job name and the minutes to skip the schedule. Set only one and the
+  schedule fails after the SVM exists. Clear the SVM name to skip it.
   SVM management LIF is four fields on the SVM configuration section:
   svm_mgmt_lif_name, svm_mgmt_lif_address, svm_mgmt_lif_netmask, and
   svm_mgmt_lif_gateway. One SVM has one management LIF, so each value is
@@ -461,7 +462,8 @@ inputs:
       Job schedule name used by the load-sharing SnapMirror of the SVM root
       volume. Defaults to 15min. The name starts with a letter, number, or
       underscore. Clear this and the job minutes to skip the schedule, the
-      mirror volumes, and the SnapMirror relationship.
+      mirror volumes, and the SnapMirror relationship. Set only one and the
+      schedule fails after the SVM exists.
   job_minutes:
     type: string
     default: "0,15,30,45"
@@ -470,7 +472,8 @@ inputs:
       Defaults to 0,15,30,45, which runs at minute 0, 15, 30, and 45. Other
       15-minute examples are 5,20,35,50 and 7,22,37,52. Each value is a whole
       number from 0 to 59. Clear this and the job name to skip the schedule,
-      the mirror volumes, and the SnapMirror relationship.
+      the mirror volumes, and the SnapMirror relationship. Set only one and the
+      schedule fails after the SVM exists.
   vsadmin_password:
     type: string
     sensitive: true

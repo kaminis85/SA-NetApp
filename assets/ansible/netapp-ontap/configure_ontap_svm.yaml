@@ -18,7 +18,11 @@
 # The default route is created only when that LIF is created and
 # svm_mgmt_lif_gateway is set. A blank gateway skips the route. Skipping
 # the LIF skips the route as well.
-# LIF, route, and DNS checks run with those tasks, after the SVM exists.
+# Each check runs immediately before the task that uses that value.
+# SVM name, IPspace, protocols, and aggregate names are checked before
+# the SVM is created. Node names are checked when the root volume node
+# is matched. Job schedule checks run with the schedule, after the SVM
+# exists. LIF, route, and DNS checks run with those tasks.
 # The LIF is created on the node that hosts the SVM root volume.
 # Its home port is the in-band management VLAN, <interface group>-<VLAN ID>.
 # svm_mgmt_lif_gateway is the SVM default route.
@@ -156,6 +160,35 @@
       ansible.builtin.meta: end_play
       when: svm_name_normalized | length == 0
 
+    - name: Normalize node rows
+      ansible.builtin.set_fact:
+        node_plan: "{{ node_plan | default([]) + [normalized_row] }}"
+      vars:
+        normalized_row:
+          node_name: "{{ item.node_name | default(item['Node Name'], true) | default('', true) | trim }}"
+          aggregate_name: "{{ item.aggregate_name | default(item['Aggregate Name'], true) | default('', true) | trim }}"
+      loop: "{{ node_rows }}"
+      loop_control:
+        label: "{{ item.node_name | default(item['Node Name'], true) | default('unnamed row', true) }}"
+
+    - name: Build the aggregate list from the node rows
+      ansible.builtin.set_fact:
+        total_aggr_list: "{{ total_aggr_list | default([]) + [item.aggregate_name] }}"
+      loop: "{{ node_plan | default([]) }}"
+      when: item.aggregate_name | length > 0
+      loop_control:
+        label: "{{ item.aggregate_name }}"
+
+    - name: Validate the aggregate list
+      ansible.builtin.assert:
+        that:
+          - total_aggr_list | default([]) | length > 0
+          - total_aggr_list | default([]) | unique | list | length == total_aggr_list | default([]) | length
+        fail_msg: >-
+          SVM creation needs at least one aggregate name from the node
+          configuration rows, and those names must be unique. Requested names:
+          {{ total_aggr_list | default([]) | join(', ') }}.
+
     - name: Validate the SVM name
       ansible.builtin.assert:
         that:
@@ -191,101 +224,6 @@
       loop: "{{ protocol_list }}"
       loop_control:
         label: "{{ item }}"
-
-    - name: Normalize node rows
-      ansible.builtin.set_fact:
-        node_plan: "{{ node_plan | default([]) + [normalized_row] }}"
-      vars:
-        normalized_row:
-          node_name: "{{ item.node_name | default(item['Node Name'], true) | default('', true) | trim }}"
-          aggregate_name: "{{ item.aggregate_name | default(item['Aggregate Name'], true) | default('', true) | trim }}"
-      loop: "{{ node_rows }}"
-      loop_control:
-        label: "{{ item.node_name | default(item['Node Name'], true) | default('unnamed row', true) }}"
-
-    - name: Validate that each node appears once
-      ansible.builtin.assert:
-        that:
-          - node_plan | default([]) | map(attribute='node_name') | unique | list | length == node_plan | default([]) | length
-        fail_msg: >-
-          Each node name can appear only once. Requested names:
-          {{ node_plan | default([]) | map(attribute='node_name') | join(', ') }}.
-      when: node_plan | default([]) | length > 0
-
-    - name: Validate node names on rows that name an aggregate
-      ansible.builtin.assert:
-        that:
-          - item.node_name | length > 0
-        fail_msg: >-
-          Row {{ ansible_loop.index }} names aggregate {{ item.aggregate_name }}
-          and needs a node name.
-      loop: "{{ node_plan | default([]) }}"
-      when: item.aggregate_name | length > 0
-      loop_control:
-        extended: true
-        label: "{{ item.aggregate_name | default('row ' ~ ansible_loop.index) }}"
-
-    - name: Build the aggregate list from the node rows
-      ansible.builtin.set_fact:
-        total_aggr_list: "{{ total_aggr_list | default([]) + [item.aggregate_name] }}"
-      loop: "{{ node_plan | default([]) }}"
-      when: item.aggregate_name | length > 0
-      loop_control:
-        label: "{{ item.aggregate_name }}"
-
-    - name: Validate the aggregate list
-      ansible.builtin.assert:
-        that:
-          - total_aggr_list | default([]) | length > 0
-          - total_aggr_list | default([]) | unique | list | length == total_aggr_list | default([]) | length
-        fail_msg: >-
-          SVM creation needs at least one aggregate name from the node
-          configuration rows, and those names must be unique. Requested names:
-          {{ total_aggr_list | default([]) | join(', ') }}.
-
-    - name: Validate that the job name and minutes are both set or both blank
-      ansible.builtin.assert:
-        that:
-          - (job_name_normalized | length > 0) == (job_minutes_normalized | length > 0)
-        fail_msg: >-
-          Enter both a job name and job minutes, or clear both to skip the
-          schedule and the load-sharing SnapMirror.
-
-    - name: Validate the job name
-      ansible.builtin.assert:
-        that:
-          - job_name_normalized is match('^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$')
-        fail_msg: >-
-          Job name must start with a letter, number, or underscore and contain
-          only letters, numbers, underscores, hyphens, and periods.
-      when: job_name_normalized | length > 0
-
-    - name: Validate the job minutes
-      ansible.builtin.assert:
-        that:
-          - job_minute_tokens | length > 0
-          - item is match('^[0-5]?[0-9]$')
-        fail_msg: >-
-          Job minutes must be whole numbers from 0 to 59, separated by commas.
-          Example: 0,15,30,45.
-      loop: "{{ job_minute_tokens if job_minute_tokens | length > 0 else ['missing'] }}"
-      when: job_name_normalized | length > 0
-      loop_control:
-        label: "{{ item }}"
-
-    - name: Read the job minutes
-      ansible.builtin.set_fact:
-        job_minute_list: "{{ job_minute_tokens | map('int') | list }}"
-      when: job_name_normalized | length > 0
-
-    - name: Validate that each job minute is unique
-      ansible.builtin.assert:
-        that:
-          - job_minute_list | unique | list | length == job_minute_list | length
-        fail_msg: >-
-          Job minutes must be unique. Requested minutes:
-          {{ job_minute_list | join(', ') }}.
-      when: job_name_normalized | length > 0
 
     - name: Show the aggregate list for the SVM
       ansible.builtin.debug:
@@ -449,6 +387,30 @@
           Aggregate {{ root_aggregate_name }} did not report the node that
           hosts the SVM root volume.
 
+    - name: Validate that each node appears once
+      ansible.builtin.assert:
+        that:
+          - aggregate_rows | map(attribute='node_name') | unique | list | length == aggregate_rows | length
+        fail_msg: >-
+          Each node name can appear only once. Requested names:
+          {{ aggregate_rows | map(attribute='node_name') | join(', ') }}.
+      vars:
+        aggregate_rows: "{{ node_plan | default([]) | selectattr('aggregate_name') | list }}"
+      when: node_plan | default([]) | selectattr('aggregate_name') | list | length > 0
+
+    - name: Validate node names on rows that name an aggregate
+      ansible.builtin.assert:
+        that:
+          - item.node_name | length > 0
+        fail_msg: >-
+          Row {{ ansible_loop.index }} names aggregate {{ item.aggregate_name }}
+          and needs a node name.
+      loop: "{{ node_plan | default([]) }}"
+      when: item.aggregate_name | length > 0
+      loop_control:
+        extended: true
+        label: "{{ item.aggregate_name | default('row ' ~ ansible_loop.index) }}"
+
     - name: Build the aggregate list for the SVM root volume node
       ansible.builtin.set_fact:
         aggr_list: "{{ aggr_list | default([]) + [item.aggregate_name] }}"
@@ -490,6 +452,50 @@
           Every aggregate from the node rows is on {{ root_node_name }}, which
           hosts the SVM root volume. No load-sharing mirror was created.
       when: lsm_aggr_list | default([]) | length == 0
+
+    - name: Validate that the job name and minutes are both set or both blank
+      ansible.builtin.assert:
+        that:
+          - (job_name_normalized | length > 0) == (job_minutes_normalized | length > 0)
+        fail_msg: >-
+          Enter both a job name and job minutes, or clear both to skip the
+          schedule and the load-sharing SnapMirror.
+
+    - name: Validate the job name
+      ansible.builtin.assert:
+        that:
+          - job_name_normalized is match('^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$')
+        fail_msg: >-
+          Job name must start with a letter, number, or underscore and contain
+          only letters, numbers, underscores, hyphens, and periods.
+      when: job_name_normalized | length > 0
+
+    - name: Validate the job minutes
+      ansible.builtin.assert:
+        that:
+          - job_minute_tokens | length > 0
+          - item is match('^[0-5]?[0-9]$')
+        fail_msg: >-
+          Job minutes must be whole numbers from 0 to 59, separated by commas.
+          Example: 0,15,30,45.
+      loop: "{{ job_minute_tokens if job_minute_tokens | length > 0 else ['missing'] }}"
+      when: job_name_normalized | length > 0
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Read the job minutes
+      ansible.builtin.set_fact:
+        job_minute_list: "{{ job_minute_tokens | map('int') | list }}"
+      when: job_name_normalized | length > 0
+
+    - name: Validate that each job minute is unique
+      ansible.builtin.assert:
+        that:
+          - job_minute_list | unique | list | length == job_minute_list | length
+        fail_msg: >-
+          Job minutes must be unique. Requested minutes:
+          {{ job_minute_list | join(', ') }}.
+      when: job_name_normalized | length > 0
 
     - name: Note that the job schedule was left blank
       ansible.builtin.debug:

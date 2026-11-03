@@ -9,6 +9,10 @@
 # Fabric is not sent to ONTAP. It distinguishes the two iSCSI VLANs.
 # A network is skipped when its VLAN name or VLAN ID is blank.
 # The VLAN name is also the broadcast domain name.
+# The IPspace name is checked just before the IPspace is created.
+# VLAN names and IDs are checked just before the broadcast domains are
+# created. The interface group name and node names are checked just
+# before the VLAN interfaces are created.
 - name: Configure ONTAP IPspace, broadcast domains, and VLANs
   hosts: localhost
   connection: local
@@ -83,49 +87,6 @@
           letters, numbers, underscores, hyphens, and periods. Default and
           Cluster already exist and cannot be used here.
 
-    - name: Validate VLAN IDs
-      ansible.builtin.assert:
-        that:
-          - item.id is match('^[1-9][0-9]{0,3}$')
-          - item.id | int <= 4094
-        fail_msg: "{{ item.role }} VLAN ID must be a number from 1 to 4094."
-      loop: "{{ vlan_plan }}"
-      when: vlan_plan | length > 0
-      loop_control:
-        label: "{{ item.role }}"
-
-    - name: Validate VLAN names
-      ansible.builtin.assert:
-        that:
-          - item.name is match('^[A-Za-z_][A-Za-z0-9_.-]{0,63}$')
-          - item.name | lower not in ['default', 'cluster']
-        fail_msg: >-
-          {{ item.role }} VLAN name must start with a letter or underscore and
-          contain only letters, numbers, underscores, hyphens, and periods.
-          Default and Cluster are reserved.
-      loop: "{{ vlan_plan }}"
-      when: vlan_plan | length > 0
-      loop_control:
-        label: "{{ item.role }}"
-
-    - name: Validate that VLAN names are unique
-      ansible.builtin.assert:
-        that:
-          - vlan_plan | map(attribute='name') | map('lower') | unique | list | length == vlan_plan | length
-        fail_msg: >-
-          VLAN names must be unique. Requested names:
-          {{ vlan_plan | map(attribute='name') | join(', ') }}.
-      when: vlan_plan | length > 0
-
-    - name: Validate that VLAN IDs are unique
-      ansible.builtin.assert:
-        that:
-          - vlan_plan | map(attribute='id') | unique | list | length == vlan_plan | length
-        fail_msg: >-
-          VLAN IDs must be unique. Requested IDs:
-          {{ vlan_plan | map(attribute='id') | join(', ') }}.
-      when: vlan_plan | length > 0
-
     - name: Create the IPspace
       netapp.ontap.na_ontap_ipspace:
         state: present
@@ -167,27 +128,6 @@
       loop_control:
         label: "{{ item.node_name | default(item['Node Name'], true) | default('unnamed row', true) }}"
 
-    - name: Validate node names on rows that list data ports
-      ansible.builtin.assert:
-        that:
-          - item.node_name | length > 0
-        fail_msg: >-
-          Row {{ ansible_loop.index }} lists data ports and needs a node name.
-      loop: "{{ node_plan | default([]) }}"
-      when: item.ports | length > 0
-      loop_control:
-        extended: true
-        label: "{{ item.node_name | default('row ' ~ ansible_loop.index) }}"
-
-    - name: Validate that each node appears once
-      ansible.builtin.assert:
-        that:
-          - node_plan | map(attribute='node_name') | unique | list | length == node_plan | length
-        fail_msg: >-
-          Each node name can appear only once. Requested names:
-          {{ node_plan | map(attribute='node_name') | join(', ') }}.
-      when: node_plan | default([]) | length > 0
-
     - name: Select nodes that list data ports
       ansible.builtin.set_fact:
         port_plan: "{{ port_plan | default([]) + [item] }}"
@@ -206,6 +146,45 @@
       when: item.ports | length == 0
       loop_control:
         label: "{{ item.node_name }}"
+
+    - name: Validate VLAN IDs
+      ansible.builtin.assert:
+        that:
+          - item.id is match('^[1-9][0-9]{0,3}$')
+          - item.id | int <= 4094
+        fail_msg: "{{ item.role }} VLAN ID must be a number from 1 to 4094."
+      loop: "{{ vlan_plan }}"
+      loop_control:
+        label: "{{ item.role }}"
+
+    - name: Validate VLAN names
+      ansible.builtin.assert:
+        that:
+          - item.name is match('^[A-Za-z_][A-Za-z0-9_.-]{0,63}$')
+          - item.name | lower not in ['default', 'cluster']
+        fail_msg: >-
+          {{ item.role }} VLAN name must start with a letter or underscore and
+          contain only letters, numbers, underscores, hyphens, and periods.
+          Default and Cluster are reserved.
+      loop: "{{ vlan_plan }}"
+      loop_control:
+        label: "{{ item.role }}"
+
+    - name: Validate that VLAN names are unique
+      ansible.builtin.assert:
+        that:
+          - vlan_plan | map(attribute='name') | map('lower') | unique | list | length == vlan_plan | length
+        fail_msg: >-
+          VLAN names must be unique. Requested names:
+          {{ vlan_plan | map(attribute='name') | join(', ') }}.
+
+    - name: Validate that VLAN IDs are unique
+      ansible.builtin.assert:
+        that:
+          - vlan_plan | map(attribute='id') | unique | list | length == vlan_plan | length
+        fail_msg: >-
+          VLAN IDs must be unique. Requested IDs:
+          {{ vlan_plan | map(attribute='id') | join(', ') }}.
 
     - name: Create Management Broadcast Domain
       netapp.ontap.na_ontap_broadcast_domain:
@@ -270,14 +249,6 @@
       ansible.builtin.meta: end_play
       when: ifgrp_name_normalized | length == 0
 
-    - name: Validate the interface group name
-      ansible.builtin.assert:
-        that:
-          - ifgrp_name_normalized is match('^a(0|[1-9][0-9]{0,2})[a-z]$')
-        fail_msg: >-
-          Interface group name must look like a0a: the letter a, a number from
-          0 to 999 with no leading zeros, and one lowercase letter.
-
     - name: Note that VLAN interfaces were skipped because no node lists data ports
       ansible.builtin.debug:
         msg: >-
@@ -289,6 +260,34 @@
     - name: Stop when no node lists data ports
       ansible.builtin.meta: end_play
       when: port_plan | default([]) | length == 0
+
+    - name: Validate the interface group name
+      ansible.builtin.assert:
+        that:
+          - ifgrp_name_normalized is match('^a(0|[1-9][0-9]{0,2})[a-z]$')
+        fail_msg: >-
+          Interface group name must look like a0a: the letter a, a number from
+          0 to 999 with no leading zeros, and one lowercase letter.
+
+    - name: Validate node names on rows that list data ports
+      ansible.builtin.assert:
+        that:
+          - item.node_name | length > 0
+        fail_msg: >-
+          Row {{ ansible_loop.index }} lists data ports and needs a node name.
+      loop: "{{ node_plan | default([]) }}"
+      when: item.ports | length > 0
+      loop_control:
+        extended: true
+        label: "{{ item.node_name | default('row ' ~ ansible_loop.index) }}"
+
+    - name: Validate that each node appears once
+      ansible.builtin.assert:
+        that:
+          - port_plan | map(attribute='node_name') | unique | list | length == port_plan | length
+        fail_msg: >-
+          Each node name can appear only once. Requested names:
+          {{ port_plan | map(attribute='node_name') | join(', ') }}.
 
     # broadcast_domain and ipspace are applied only when this module uses REST.
     - name: Create the management VLAN and add it to the management broadcast domain
