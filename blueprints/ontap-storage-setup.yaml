@@ -17,16 +17,21 @@ description: >-
   The job schedule defaults to 15min at minutes 0, 15, 30, and 45. Clear the
   SVM name to skip it.
   SVM management LIF is four fields on the SVM configuration section:
-  SVM management LIF name, address, netmask, and gateway. One SVM has one
-  management LIF, so each value is its own field. That LIF is created on
-  the node that hosts the SVM root volume when the name, address, and
-  netmask are all filled in. Its home port is the in-band management VLAN
-  interface, for example a0a-2235. The gateway is the SVM default route
-  and is skipped on its own when left blank. Leave the SVM name blank to
-  skip the LIF and the route.
-  SVM DNS is svm_dns_domain and svm_dns_servers. Fill in both to configure DNS
-  on the SVM. Leave both blank to skip it. Cluster DNS still uses
-  dns_domain_name and dns_servers.
+  svm_mgmt_lif_name, svm_mgmt_lif_address, svm_mgmt_lif_netmask, and
+  svm_mgmt_lif_gateway. One SVM has one management LIF, so each value is
+  its own field. That LIF is created on the node that hosts the SVM root
+  volume when svm_mgmt_lif_name, svm_mgmt_lif_address, and
+  svm_mgmt_lif_netmask are all filled in, and the interface group name
+  and the in-band management VLAN name and VLAN ID are filled in. Leave
+  any of those blank to skip the LIF. Its home port is the in-band
+  management VLAN interface, for example a0a-2235. The default route runs
+  only after that LIF is created and svm_mgmt_lif_gateway is filled in.
+  A blank gateway skips the route. Skipping the LIF skips the route as
+  well. Leave the SVM name blank to skip the LIF and the route.
+  SVM DNS is svm_dns_servers and svm_dns_domain. Fill in both to configure
+  DNS on the SVM. Leave both blank to skip it. Set only one and SVM DNS
+  fails after the SVM, the management LIF, and the default route. Cluster
+  DNS still uses dns_domain_name and dns_servers.
   Fibre Channel, NVMe, and S3 are not included.
 
 instructions:
@@ -198,13 +203,9 @@ customization:
               - name: vsadmin_password
               - name: svm_login_banner
               - name: svm_mgmt_lif_name
-                display_name: SVM management LIF name
               - name: svm_mgmt_lif_address
-                display_name: SVM management LIF address
               - name: svm_mgmt_lif_netmask
-                display_name: SVM management LIF netmask
               - name: svm_mgmt_lif_gateway
-                display_name: SVM management LIF gateway
               - name: svm_dns_servers
               - name: svm_dns_domain
 
@@ -492,30 +493,33 @@ inputs:
       volume, with service policy default-management, admin status up,
       failover policy broadcast-domain-wide, and auto-revert enabled. The
       home port is the in-band management VLAN interface, for example
-      a0a-2235. Fill this in together with the SVM management LIF address and
-      netmask. Leave it blank to skip the LIF.
+      a0a-2235. Fill this in together with svm_mgmt_lif_address and
+      svm_mgmt_lif_netmask. The interface group name and the in-band
+      management VLAN name and VLAN ID must be filled in as well. Leave
+      any of those blank to skip the LIF.
   svm_mgmt_lif_address:
     type: string
     default: ""
     description: >-
       IPv4 address of the SVM management LIF. Example: 10.102.2.50. Fill this
-      in together with the SVM management LIF name and netmask. Leave it
+      in together with svm_mgmt_lif_name and svm_mgmt_lif_netmask. Leave it
       blank to skip the LIF.
   svm_mgmt_lif_netmask:
     type: string
     default: ""
     description: >-
       Subnet mask of the SVM management LIF, in dotted decimal form. Example:
-      255.255.255.0. Fill this in together with the SVM management LIF name
-      and address. Leave it blank to skip the LIF.
+      255.255.255.0. Fill this in together with svm_mgmt_lif_name and
+      svm_mgmt_lif_address. Leave it blank to skip the LIF.
   svm_mgmt_lif_gateway:
     type: string
     default: ""
     description: >-
       IPv4 gateway for the SVM management LIF. Example: 10.102.2.254. This
-      becomes the SVM default route to 0.0.0.0/0. It must be different from
-      the SVM management LIF address. Leave it blank to skip the default
-      route. The LIF can still be created without it.
+      becomes the SVM default route to 0.0.0.0/0 after the management LIF
+      is created. It must be different from svm_mgmt_lif_address. Leave it
+      blank to skip the default route. If the LIF is skipped, the route is
+      skipped as well. The LIF can still be created without it.
   svm_dns_servers:
     type: string
     default: ""
@@ -523,14 +527,17 @@ inputs:
       Comma-separated DNS server IPv4 addresses for the SVM. Example:
       10.1.1.10,10.1.1.11. This is separate from the cluster DNS servers.
       Fill this in together with svm_dns_domain. Leave both blank to skip SVM DNS.
-      SVM DNS runs after the SVM management LIF and the default route.
+      Set only one and SVM DNS fails after the SVM, the management LIF, and
+      the default route. SVM DNS runs after the SVM management LIF and the
+      default route.
   svm_dns_domain:
     type: string
     default: ""
     description: >-
       DNS domain name for the SVM. Example: example.com. This is separate
       from the cluster DNS domain. Fill this in together with svm_dns_servers.
-      Leave both blank to skip SVM DNS.
+      Leave both blank to skip SVM DNS. Set only one and SVM DNS fails after
+      the SVM, the management LIF, and the default route.
 
 grains:
   update_cluster_location:

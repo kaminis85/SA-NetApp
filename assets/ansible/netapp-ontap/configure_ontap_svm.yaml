@@ -6,18 +6,25 @@
 # iscsi starts the iSCSI service.
 # The job schedule drives the load-sharing SnapMirror of the SVM root volume.
 # Mirrors are placed on aggregates that are not on the root volume's node.
-# The SVM management LIF is four fields: name, address, netmask, and gateway.
+# The SVM management LIF is four fields: svm_mgmt_lif_name,
+# svm_mgmt_lif_address, svm_mgmt_lif_netmask, and svm_mgmt_lif_gateway.
 # One SVM has one management LIF, so each value is its own field.
-# Blank name, address, or netmask skips the LIF.
-# A blank gateway skips the default route.
-# The LIF is created only when the SVM name, LIF name, address, and netmask
-# are set, and the interface group and in-band management VLAN are set.
-# The default route is created only when the SVM name and gateway are set.
-# It is created on the node that hosts the SVM root volume.
+# Blank svm_mgmt_lif_name, svm_mgmt_lif_address, or svm_mgmt_lif_netmask
+# skips the LIF. A blank interface group name, in-band management VLAN
+# name, or VLAN ID also skips the LIF.
+# The LIF is created only when the SVM name, svm_mgmt_lif_name,
+# svm_mgmt_lif_address, and svm_mgmt_lif_netmask are set, and the interface
+# group and in-band management VLAN are set.
+# The default route is created only when that LIF is created and
+# svm_mgmt_lif_gateway is set. A blank gateway skips the route. Skipping
+# the LIF skips the route as well.
+# LIF, route, and DNS checks run with those tasks, after the SVM exists.
+# The LIF is created on the node that hosts the SVM root volume.
 # Its home port is the in-band management VLAN, <interface group>-<VLAN ID>.
-# The gateway is the SVM default route.
-# SVM DNS is svm_dns_domain and svm_dns_servers.
+# svm_mgmt_lif_gateway is the SVM default route.
+# SVM DNS is svm_dns_servers and svm_dns_domain.
 # Fill in both to configure DNS on the SVM. Leave both blank to skip it.
+# Set only one and SVM DNS fails after the SVM, the LIF, and the route.
 # DNS runs after the SVM management LIF and the default route.
 # NVMe and S3 are not configured here.
 - name: Configure the ONTAP SVM
@@ -52,6 +59,30 @@
       {{
         svm_dns_domain_normalized | length > 0
         or svm_dns_server_list | length > 0
+      }}
+    svm_dns_ready: >-
+      {{
+        svm_dns_domain_normalized | length > 0
+        and svm_dns_server_list | length > 0
+      }}
+    svm_mgmt_lif_requested: >-
+      {{
+        svm_mgmt_lif_plan.lif_name | length > 0
+        and svm_mgmt_lif_plan.address | length > 0
+        and svm_mgmt_lif_plan.netmask | length > 0
+        and ifgrp_name_normalized | length > 0
+        and ib_mgmt_vlan_name_normalized | length > 0
+        and ib_mgmt_vlan_id_normalized | length > 0
+      }}
+    svm_mgmt_route_requested: >-
+      {{
+        svm_mgmt_lif_plan.lif_name | length > 0
+        and svm_mgmt_lif_plan.address | length > 0
+        and svm_mgmt_lif_plan.netmask | length > 0
+        and ifgrp_name_normalized | length > 0
+        and ib_mgmt_vlan_name_normalized | length > 0
+        and ib_mgmt_vlan_id_normalized | length > 0
+        and svm_mgmt_lif_plan.gateway | length > 0
       }}
     ipv4_pattern: '^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$'
     ipv4_netmasks:
@@ -255,174 +286,6 @@
           Job minutes must be unique. Requested minutes:
           {{ job_minute_list | join(', ') }}.
       when: job_name_normalized | length > 0
-
-    - name: Validate the SVM management LIF name
-      ansible.builtin.assert:
-        that:
-          - svm_mgmt_lif_plan.lif_name is match('^[A-Za-z_][A-Za-z0-9_.-]{0,254}$')
-        fail_msg: >-
-          SVM management LIF name must start with a letter or underscore and
-          contain only letters, numbers, underscores, hyphens, and periods.
-      when:
-        - svm_name_normalized | length > 0
-        - svm_mgmt_lif_plan.lif_name | length > 0
-        - svm_mgmt_lif_plan.address | length > 0
-        - svm_mgmt_lif_plan.netmask | length > 0
-
-    - name: Validate the SVM management LIF address
-      ansible.builtin.assert:
-        that:
-          - svm_mgmt_lif_plan.address is match(ipv4_pattern)
-        fail_msg: SVM management LIF address must be an IPv4 address.
-      when:
-        - svm_name_normalized | length > 0
-        - svm_mgmt_lif_plan.lif_name | length > 0
-        - svm_mgmt_lif_plan.address | length > 0
-        - svm_mgmt_lif_plan.netmask | length > 0
-
-    - name: Validate the SVM management LIF netmask
-      ansible.builtin.assert:
-        that:
-          - svm_mgmt_lif_plan.netmask in ipv4_netmasks
-        fail_msg: >-
-          SVM management LIF netmask must be a dotted IPv4 netmask, for example
-          255.255.255.0.
-      when:
-        - svm_name_normalized | length > 0
-        - svm_mgmt_lif_plan.lif_name | length > 0
-        - svm_mgmt_lif_plan.address | length > 0
-        - svm_mgmt_lif_plan.netmask | length > 0
-
-    - name: Validate the SVM default route gateway
-      ansible.builtin.assert:
-        that:
-          - svm_mgmt_lif_plan.gateway is match(ipv4_pattern)
-        fail_msg: SVM default route gateway must be an IPv4 address.
-      when:
-        - svm_name_normalized | length > 0
-        - svm_mgmt_lif_plan.gateway | length > 0
-
-    - name: Validate that the SVM management LIF address and gateway differ
-      ansible.builtin.assert:
-        that:
-          - svm_mgmt_lif_plan.address != svm_mgmt_lif_plan.gateway
-        fail_msg: SVM management LIF address and gateway must be different.
-      when:
-        - svm_name_normalized | length > 0
-        - svm_mgmt_lif_plan.address | length > 0
-        - svm_mgmt_lif_plan.gateway | length > 0
-
-    - name: Validate the interface group used by the SVM management LIF
-      ansible.builtin.assert:
-        that:
-          - ifgrp_name_normalized is match('^a(0|[1-9][0-9]{0,2})[a-z]$')
-        fail_msg: >-
-          The SVM management LIF home port uses the interface group name.
-          Example: a0a.
-      when:
-        - svm_name_normalized | length > 0
-        - svm_mgmt_lif_plan.lif_name | length > 0
-        - svm_mgmt_lif_plan.address | length > 0
-        - svm_mgmt_lif_plan.netmask | length > 0
-        - ifgrp_name_normalized | length > 0
-
-    - name: Validate the in-band management VLAN name used by the SVM management LIF
-      ansible.builtin.assert:
-        that:
-          - ib_mgmt_vlan_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,63}$')
-          - ib_mgmt_vlan_name_normalized | lower not in ['default', 'cluster']
-        fail_msg: >-
-          The SVM management LIF home port uses the in-band management VLAN.
-          Enter a VLAN name that starts with a letter or underscore. Default
-          and Cluster already exist and cannot be used here.
-      when:
-        - svm_name_normalized | length > 0
-        - svm_mgmt_lif_plan.lif_name | length > 0
-        - svm_mgmt_lif_plan.address | length > 0
-        - svm_mgmt_lif_plan.netmask | length > 0
-        - ib_mgmt_vlan_name_normalized | length > 0
-
-    - name: Validate the in-band management VLAN ID used by the SVM management LIF
-      ansible.builtin.assert:
-        that:
-          - ib_mgmt_vlan_id_normalized is match('^[1-9][0-9]{0,3}$')
-          - ib_mgmt_vlan_id_normalized | int <= 4094
-        fail_msg: >-
-          The SVM management LIF home port uses the in-band management VLAN ID.
-          Enter a VLAN ID from 1 to 4094. The home port is
-          <interface group>-<VLAN ID>, for example a0a-2235.
-      when:
-        - svm_name_normalized | length > 0
-        - svm_mgmt_lif_plan.lif_name | length > 0
-        - svm_mgmt_lif_plan.address | length > 0
-        - svm_mgmt_lif_plan.netmask | length > 0
-        - ib_mgmt_vlan_id_normalized | length > 0
-
-    - name: Note that the SVM management LIF was skipped
-      ansible.builtin.debug:
-        msg: >-
-          SVM management LIF name, address, or netmask is blank, so SVM
-          management LIF creation was skipped.
-      when:
-        - svm_mgmt_lif_plan.lif_name | length == 0
-          or svm_mgmt_lif_plan.address | length == 0
-          or svm_mgmt_lif_plan.netmask | length == 0
-
-    - name: Note that the SVM management LIF home port was left blank
-      ansible.builtin.debug:
-        msg: >-
-          The interface group name or the in-band management VLAN name or
-          VLAN ID is blank, so SVM management LIF creation was skipped.
-      when:
-        - svm_mgmt_lif_plan.lif_name | length > 0
-        - svm_mgmt_lif_plan.address | length > 0
-        - svm_mgmt_lif_plan.netmask | length > 0
-        - ifgrp_name_normalized | length == 0
-          or ib_mgmt_vlan_name_normalized | length == 0
-          or ib_mgmt_vlan_id_normalized | length == 0
-
-    - name: Note that the SVM default route was skipped
-      ansible.builtin.debug:
-        msg: >-
-          The SVM management LIF gateway is blank, so the SVM default route
-          was skipped.
-      when: svm_mgmt_lif_plan.gateway | length == 0
-
-    - name: Validate that the SVM DNS domain and servers are both set or both blank
-      ansible.builtin.assert:
-        that:
-          - (svm_dns_domain_normalized | length > 0) == (svm_dns_server_list | length > 0)
-        fail_msg: >-
-          Enter both a DNS domain and DNS servers, or clear both to skip SVM DNS.
-
-    - name: Validate the SVM DNS domain
-      ansible.builtin.assert:
-        that:
-          - svm_dns_domain_normalized is match('^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$')
-        fail_msg: >-
-          DNS domain must be a domain name, for example example.com.
-      when: svm_dns_requested | bool
-
-    - name: Validate the SVM DNS servers
-      ansible.builtin.assert:
-        that:
-          - item is match(ipv4_pattern)
-        fail_msg: >-
-          DNS servers must be comma-separated IPv4 addresses. Example:
-          10.1.1.10,10.1.1.11.
-      loop: "{{ svm_dns_server_list }}"
-      when: svm_dns_requested | bool
-      loop_control:
-        label: "{{ item }}"
-
-    - name: Validate that each SVM DNS server is unique
-      ansible.builtin.assert:
-        that:
-          - svm_dns_server_list | unique | list | length == svm_dns_server_list | length
-        fail_msg: >-
-          DNS server addresses must be unique. Requested servers:
-          {{ svm_dns_server_list | join(', ') }}.
-      when: svm_dns_requested | bool
 
     - name: Show the aggregate list for the SVM
       ansible.builtin.debug:
@@ -931,6 +794,83 @@
         use_rest: always
       when: svm_login_banner_normalized | length > 0
 
+    - name: Note that the SVM management LIF was skipped
+      ansible.builtin.debug:
+        msg: >-
+          svm_mgmt_lif_name, svm_mgmt_lif_address, or svm_mgmt_lif_netmask is
+          blank, so SVM management LIF creation was skipped.
+      when:
+        - svm_mgmt_lif_plan.lif_name | length == 0
+          or svm_mgmt_lif_plan.address | length == 0
+          or svm_mgmt_lif_plan.netmask | length == 0
+
+    - name: Note that the SVM management LIF home port was left blank
+      ansible.builtin.debug:
+        msg: >-
+          The interface group name or the in-band management VLAN name or
+          VLAN ID is blank, so SVM management LIF creation was skipped.
+      when:
+        - svm_mgmt_lif_plan.lif_name | length > 0
+        - svm_mgmt_lif_plan.address | length > 0
+        - svm_mgmt_lif_plan.netmask | length > 0
+        - not (svm_mgmt_lif_requested | bool)
+
+    - name: Validate svm_mgmt_lif_name
+      ansible.builtin.assert:
+        that:
+          - svm_mgmt_lif_plan.lif_name is match('^[A-Za-z_][A-Za-z0-9_.-]{0,254}$')
+        fail_msg: >-
+          svm_mgmt_lif_name must start with a letter or underscore and contain
+          only letters, numbers, underscores, hyphens, and periods.
+      when: svm_mgmt_lif_requested | bool
+
+    - name: Validate svm_mgmt_lif_address
+      ansible.builtin.assert:
+        that:
+          - svm_mgmt_lif_plan.address is match(ipv4_pattern)
+        fail_msg: svm_mgmt_lif_address must be an IPv4 address.
+      when: svm_mgmt_lif_requested | bool
+
+    - name: Validate svm_mgmt_lif_netmask
+      ansible.builtin.assert:
+        that:
+          - svm_mgmt_lif_plan.netmask in ipv4_netmasks
+        fail_msg: >-
+          svm_mgmt_lif_netmask must be a dotted IPv4 netmask, for example
+          255.255.255.0.
+      when: svm_mgmt_lif_requested | bool
+
+    - name: Validate the interface group used by the SVM management LIF
+      ansible.builtin.assert:
+        that:
+          - ifgrp_name_normalized is match('^a(0|[1-9][0-9]{0,2})[a-z]$')
+        fail_msg: >-
+          The SVM management LIF home port uses the interface group name.
+          Example: a0a.
+      when: svm_mgmt_lif_requested | bool
+
+    - name: Validate the in-band management VLAN name used by the SVM management LIF
+      ansible.builtin.assert:
+        that:
+          - ib_mgmt_vlan_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,63}$')
+          - ib_mgmt_vlan_name_normalized | lower not in ['default', 'cluster']
+        fail_msg: >-
+          The SVM management LIF home port uses the in-band management VLAN.
+          Enter a VLAN name that starts with a letter or underscore. Default
+          and Cluster already exist and cannot be used here.
+      when: svm_mgmt_lif_requested | bool
+
+    - name: Validate the in-band management VLAN ID used by the SVM management LIF
+      ansible.builtin.assert:
+        that:
+          - ib_mgmt_vlan_id_normalized is match('^[1-9][0-9]{0,3}$')
+          - ib_mgmt_vlan_id_normalized | int <= 4094
+        fail_msg: >-
+          The SVM management LIF home port uses the in-band management VLAN ID.
+          Enter a VLAN ID from 1 to 4094. The home port is
+          <interface group>-<VLAN ID>, for example a0a-2235.
+      when: svm_mgmt_lif_requested | bool
+
     - name: Show the SVM management LIF plan
       ansible.builtin.debug:
         msg: >-
@@ -939,14 +879,7 @@
           {{ svm_mgmt_lif_plan.netmask }} will be created on node
           {{ root_node_name }}, home port
           {{ ifgrp_name_normalized }}-{{ ib_mgmt_vlan_id_normalized }}.
-      when:
-        - svm_name_normalized | length > 0
-        - svm_mgmt_lif_plan.lif_name | length > 0
-        - svm_mgmt_lif_plan.address | length > 0
-        - svm_mgmt_lif_plan.netmask | length > 0
-        - ifgrp_name_normalized | length > 0
-        - ib_mgmt_vlan_name_normalized | length > 0
-        - ib_mgmt_vlan_id_normalized | length > 0
+      when: svm_mgmt_lif_requested | bool
 
     # Home node is the node that hosts the SVM root volume, recorded above.
     # Home port is the in-band management VLAN interface, for example a0a-2235.
@@ -969,23 +902,43 @@
         https: true
         validate_certs: false
         use_rest: always
+      when: svm_mgmt_lif_requested | bool
+
+    - name: Note that the SVM default route was skipped
+      ansible.builtin.debug:
+        msg: >-
+          svm_mgmt_lif_gateway is blank, so the SVM default route was skipped.
+      when: svm_mgmt_lif_plan.gateway | length == 0
+
+    - name: Note that the SVM default route was skipped because the LIF was skipped
+      ansible.builtin.debug:
+        msg: >-
+          The SVM management LIF was skipped, so the SVM default route was
+          skipped.
       when:
-        - svm_name_normalized | length > 0
-        - svm_mgmt_lif_plan.lif_name | length > 0
-        - svm_mgmt_lif_plan.address | length > 0
-        - svm_mgmt_lif_plan.netmask | length > 0
-        - ifgrp_name_normalized | length > 0
-        - ib_mgmt_vlan_name_normalized | length > 0
-        - ib_mgmt_vlan_id_normalized | length > 0
+        - svm_mgmt_lif_plan.gateway | length > 0
+        - not (svm_mgmt_lif_requested | bool)
+
+    - name: Validate svm_mgmt_lif_gateway
+      ansible.builtin.assert:
+        that:
+          - svm_mgmt_lif_plan.gateway is match(ipv4_pattern)
+        fail_msg: svm_mgmt_lif_gateway must be an IPv4 address.
+      when: svm_mgmt_route_requested | bool
+
+    - name: Validate that svm_mgmt_lif_address and svm_mgmt_lif_gateway differ
+      ansible.builtin.assert:
+        that:
+          - svm_mgmt_lif_plan.address != svm_mgmt_lif_plan.gateway
+        fail_msg: svm_mgmt_lif_address and svm_mgmt_lif_gateway must be different.
+      when: svm_mgmt_route_requested | bool
 
     - name: Show the SVM default route plan
       ansible.builtin.debug:
         msg: >-
           The SVM default route to 0.0.0.0/0 will use gateway
           {{ svm_mgmt_lif_plan.gateway }}.
-      when:
-        - svm_name_normalized | length > 0
-        - svm_mgmt_lif_plan.gateway | length > 0
+      when: svm_mgmt_route_requested | bool
 
     - name: Create the default route on the SVM
       netapp.ontap.na_ontap_net_routes:
@@ -999,21 +952,56 @@
         https: true
         validate_certs: false
         use_rest: always
-      when:
-        - svm_name_normalized | length > 0
-        - svm_mgmt_lif_plan.gateway | length > 0
+      when: svm_mgmt_route_requested | bool
 
     - name: Note that SVM DNS was left blank
       ansible.builtin.debug:
         msg: DNS domain and DNS servers are blank, so SVM DNS was skipped.
       when: not (svm_dns_requested | bool)
 
+    - name: Validate that the SVM DNS domain and servers are both set or both blank
+      ansible.builtin.assert:
+        that:
+          - svm_dns_ready | bool
+        fail_msg: >-
+          Enter both a DNS domain and DNS servers, or clear both to skip SVM DNS.
+      when: svm_dns_requested | bool
+
+    - name: Validate the SVM DNS domain
+      ansible.builtin.assert:
+        that:
+          - svm_dns_domain_normalized is match('^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$')
+        fail_msg: >-
+          DNS domain must be a domain name, for example example.com.
+      when: svm_dns_ready | bool
+
+    - name: Validate the SVM DNS servers
+      ansible.builtin.assert:
+        that:
+          - item is match(ipv4_pattern)
+        fail_msg: >-
+          DNS servers must be comma-separated IPv4 addresses. Example:
+          10.1.1.10,10.1.1.11.
+      loop: "{{ svm_dns_server_list }}"
+      when: svm_dns_ready | bool
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Validate that each SVM DNS server is unique
+      ansible.builtin.assert:
+        that:
+          - svm_dns_server_list | unique | list | length == svm_dns_server_list | length
+        fail_msg: >-
+          DNS server addresses must be unique. Requested servers:
+          {{ svm_dns_server_list | join(', ') }}.
+      when: svm_dns_ready | bool
+
     - name: Show the SVM DNS plan
       ansible.builtin.debug:
         msg: >-
           SVM {{ svm_name_normalized }} DNS domain is {{ svm_dns_domain_normalized }}.
           Name servers: {{ svm_dns_server_list | join(', ') }}.
-      when: svm_dns_requested | bool
+      when: svm_dns_ready | bool
 
     - name: Configure DNS for the SVM
       netapp.ontap.na_ontap_dns:
@@ -1027,4 +1015,4 @@
         https: true
         validate_certs: false
         use_rest: always
-      when: svm_dns_requested | bool
+      when: svm_dns_ready | bool
