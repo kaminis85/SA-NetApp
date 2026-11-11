@@ -1,11 +1,7 @@
 # Aggregate names come from the node configuration table.
 # The SVM is created in the IPspace from Network Configuration.
 # Protocols are nfs, iscsi, or both.
-# Each selected protocol license is looked up by package name before the SVM
-# is created. An installed entry is a license row with a serial number, which
-# is the row system license show prints. Each of those rows must have
-# licenses.compliance.state compliant. The run shows the owner, serial number,
-# installed license, expiration, and that compliance state.
+# Each selected license is checked before the SVM is created.
 # nfs starts NFSv3 and NFSv4.1 and disables UDP.
 # iscsi starts the iSCSI service.
 # The load-sharing SnapMirror, vsadmin, the SVM login banner, the management LIF,
@@ -125,16 +121,10 @@
       loop_control:
         label: "{{ item }}"
 
-    # na_ontap_license only adds or removes keys. na_ontap_rest_info accepts
-    # the collection subset cluster/licensing/licenses, not the path
-    # cluster/licensing/licenses/{name}. parameters.name is
-    # GET /cluster/licensing/licenses?name=nfs, and that record is the same
-    # package as GET /cluster/licensing/licenses/{name}. The path name is the
-    # lowercase package, nfs or iscsi. An unlicensed package returns no records.
-    # The licenses list is what "system license show" prints for that package:
-    # owner, serial number, installed license, and expiration. A row with no
-    # serial number is not one of those entries. Compliance for each installed
-    # serial is licenses.compliance.state, not the package summary state.
+    # Same check as system license show for the selected package.
+    # Every serial must have licenses.compliance.state compliant.
+    # The tasks below show the owner, serial, installed license, and expiration.
+    # A row with no serial number is not an installed license.
     - name: Read each selected license package
       netapp.ontap.na_ontap_rest_info:
         hostname: "{{ ontap_hostname }}"
