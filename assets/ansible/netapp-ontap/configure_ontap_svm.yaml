@@ -5,7 +5,8 @@
 # nfs starts NFSv3 and NFSv4.1 and disables UDP.
 # iscsi starts the iSCSI service.
 # The load-sharing SnapMirror, vsadmin, the SVM login banner, the management LIF,
-# the default route, and SVM DNS are separate tasks.
+# the default route, SVM DNS, the NFS export policy rule, and the audit log
+# volume are separate tasks.
 # SVM name, IPspace, protocols, aggregate names, and the selected protocol
 # licenses are checked just before the SVM is created.
 # NVMe and S3 are not configured here.

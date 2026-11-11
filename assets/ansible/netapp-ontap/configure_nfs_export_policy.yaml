@@ -1,0 +1,97 @@
+# Adds one rule to the SVM default export policy for the NFS client subnet.
+# The policy name is default. The protocol is nfs. The rule index is 1.
+# Read-only, read-write, and superuser security are sys, and suid is allowed.
+# Those values are fixed.
+# Leave nfs_client_match blank to skip this task.
+# This task runs after the SVM task. nfs must be one of the SVM protocols.
+- name: Create the NFS export policy rule
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
+    nfs_client_match_normalized: "{{ nfs_client_match | default('') | string | trim }}"
+    raw_protocols: "{{ allowed_protocols | default('[]') }}"
+    decoded_protocols: >-
+      {{
+        [] if (raw_protocols | string | trim) in ['', '[]']
+        else (
+          raw_protocols | from_json
+          if raw_protocols is string and (raw_protocols | string | trim) is match('^\\[')
+          else (
+            raw_protocols if raw_protocols is not string
+            else raw_protocols.split(',')
+          )
+        )
+      }}
+    protocol_list: >-
+      {{
+        decoded_protocols
+        | map('string')
+        | map('trim')
+        | map('lower')
+        | reject('equalto', '')
+        | unique
+        | list
+      }}
+    ipv4_cidr_pattern: '^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])/(3[0-2]|[12]?[0-9])$'
+
+  tasks:
+
+    - name: Validate the SVM name
+      ansible.builtin.assert:
+        that:
+          - svm_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,40}$')
+        fail_msg: >-
+          SVM name must start with a letter or underscore, contain only
+          letters, numbers, underscores, hyphens, and periods, and be at most
+          41 characters.
+
+    - name: Validate the NFS client match
+      ansible.builtin.assert:
+        that:
+          - nfs_client_match_normalized | length > 0
+          - nfs_client_match_normalized is match(ipv4_cidr_pattern)
+        fail_msg: >-
+          NFS client match must be an IPv4 subnet in CIDR form. Example:
+          192.168.52.0/24. Leave it blank to skip the export policy rule.
+
+    - name: Validate that nfs is selected for the SVM
+      ansible.builtin.assert:
+        that:
+          - "'nfs' in protocol_list"
+        fail_msg: >-
+          The export policy rule uses protocol nfs. Select nfs for the SVM
+          before setting the NFS client match. Selected protocols:
+          {{ protocol_list | join(', ') if protocol_list | length > 0 else 'none' }}.
+
+    - name: Show the NFS export policy rule
+      ansible.builtin.debug:
+        msg: >-
+          SVM {{ svm_name_normalized }} default export policy, rule index 1,
+          client match {{ nfs_client_match_normalized }}, protocol nfs,
+          ro sys, rw sys, superuser sys, suid allowed.
+
+    - name: Create a new rule for the SVM NFS subnet in the default export policy
+      netapp.ontap.na_ontap_export_policy_rule:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        policy_name: default
+        client_match:
+          - "{{ nfs_client_match_normalized }}"
+        protocol:
+          - nfs
+        ro_rule:
+          - sys
+        rw_rule:
+          - sys
+        rule_index: 1
+        super_user_security:
+          - sys
+        allow_suid: true
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always

@@ -1,0 +1,252 @@
+# Creates the SVM audit log FlexVol and enables SVM auditing.
+# No SnapMirror relationship is required. A volume created with a junction
+# path refreshes an existing load-sharing set on its own, so the manual
+# update-ls-set runs only when a set is already present.
+# The volume is online, uses export policy default, has no space guarantee,
+# and has no snapshot reserve. Size is in gigabytes. The junction path and
+# the audit log path are /<volume name>.
+# Name, size, and aggregate are all required. Leave all three blank to skip
+# this task. Filling in only some of them fails.
+# Runs after the SVM task.
+- name: Configure the SVM audit log volume
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
+    audit_log_volume_name_normalized: "{{ audit_log_volume_name | default('') | string | trim }}"
+    audit_log_volume_size_normalized: "{{ audit_log_volume_size_gb | default('') | string | trim }}"
+    audit_log_aggregate_normalized: "{{ audit_log_aggregate | default('') | string | trim }}"
+    audit_log_junction_path: "/{{ audit_log_volume_name_normalized }}"
+    node_rows: >-
+      {{
+        [] if (node_specs | default('[]') | string | trim) in ['', '[]']
+        else (node_specs | from_json if node_specs is string else node_specs)
+      }}
+
+  tasks:
+
+    - name: Validate the SVM name
+      ansible.builtin.assert:
+        that:
+          - svm_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,40}$')
+        fail_msg: >-
+          SVM name must start with a letter or underscore, contain only
+          letters, numbers, underscores, hyphens, and periods, and be at most
+          41 characters.
+
+    - name: Validate that the audit log name, size, and aggregate are all set
+      ansible.builtin.assert:
+        that:
+          - audit_log_volume_name_normalized | length > 0
+          - audit_log_volume_size_normalized | length > 0
+          - audit_log_aggregate_normalized | length > 0
+        fail_msg: >-
+          Enter the audit log volume name, the size in gigabytes, and the
+          aggregate, or leave all three blank to skip this task.
+
+    - name: Validate the audit log volume name
+      ansible.builtin.assert:
+        that:
+          - audit_log_volume_name_normalized is match('^[A-Za-z_][A-Za-z0-9_]{0,202}$')
+        fail_msg: >-
+          Audit log volume name must start with a letter or underscore and
+          contain only letters, numbers, and underscores. Example: audit_log.
+
+    - name: Validate the audit log volume size
+      ansible.builtin.assert:
+        that:
+          - audit_log_volume_size_normalized is match('^[1-9][0-9]{0,6}$')
+        fail_msg: >-
+          audit_log_volume_size_gb must be a whole number of gigabytes from 1
+          to 9999999. Example: 50.
+
+    - name: Validate the audit log aggregate name
+      ansible.builtin.assert:
+        that:
+          - audit_log_aggregate_normalized | length > 0
+        fail_msg: >-
+          Enter the aggregate that holds the audit log volume. Use an
+          aggregate name from the node configuration rows.
+
+    - name: Normalize node rows
+      ansible.builtin.set_fact:
+        node_plan: "{{ node_plan | default([]) + [normalized_row] }}"
+      vars:
+        normalized_row:
+          node_name: "{{ item.node_name | default(item['Node Name'], true) | default('', true) | trim }}"
+          aggregate_name: "{{ item.aggregate_name | default(item['Aggregate Name'], true) | default('', true) | trim }}"
+      loop: "{{ node_rows }}"
+      loop_control:
+        label: "{{ item.node_name | default(item['Node Name'], true) | default('unnamed row', true) }}"
+
+    - name: Build the aggregate list from the node rows
+      ansible.builtin.set_fact:
+        total_aggr_list: "{{ total_aggr_list | default([]) + [item.aggregate_name] }}"
+      loop: "{{ node_plan | default([]) }}"
+      when: item.aggregate_name | length > 0
+      loop_control:
+        label: "{{ item.aggregate_name }}"
+
+    - name: Validate that the audit log aggregate is one of the node aggregates
+      ansible.builtin.assert:
+        that:
+          - audit_log_aggregate_normalized in (total_aggr_list | default([]))
+        fail_msg: >-
+          The audit log volume must use an aggregate name from the node
+          configuration rows. Requested aggregate:
+          {{ audit_log_aggregate_normalized }}. Aggregates from the rows:
+          {{ total_aggr_list | default([]) | join(', ') if (total_aggr_list | default([]) | length > 0) else 'none' }}.
+
+    - name: Show the audit log volume plan
+      ansible.builtin.debug:
+        msg: >-
+          FlexVol {{ audit_log_volume_name_normalized }} of
+          {{ audit_log_volume_size_normalized }} GB on aggregate
+          {{ audit_log_aggregate_normalized }}, SVM {{ svm_name_normalized }},
+          junction {{ audit_log_junction_path }}. Export policy default, online,
+          no space guarantee, snapshot reserve 0. Then refresh a load-sharing
+          mirror set when one already exists, and enable auditing at
+          {{ audit_log_junction_path }}.
+
+    - name: Create FlexVol for SVM audit log configuration
+      netapp.ontap.na_ontap_volume:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        policy: default
+        name: "{{ audit_log_volume_name_normalized }}"
+        aggregate_name: "{{ audit_log_aggregate_normalized }}"
+        size: "{{ audit_log_volume_size_normalized | int }}"
+        size_unit: gb
+        is_online: true
+        space_guarantee: none
+        percent_snapshot_space: 0
+        junction_path: "{{ audit_log_junction_path }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+
+    - name: Get the SVM root volume information
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - storage/volumes
+        parameters:
+          name: "*root"
+          svm.name: "{{ svm_name_normalized }}"
+        fields:
+          - name
+          - is_svm_root
+      register: svm_rootvol
+      no_log: true
+
+    - name: Select the SVM root volume
+      ansible.builtin.set_fact:
+        root_volume_name: "{{ (chosen_root_records | first | default({})).name | default('') }}"
+      vars:
+        volume_records: >-
+          {{
+            (svm_rootvol.ontap_info.storage_volumes | default({})).records
+            | default([])
+          }}
+        flagged_root_records: >-
+          {{
+            volume_records
+            | selectattr('is_svm_root', 'defined')
+            | selectattr('is_svm_root')
+            | list
+          }}
+        named_root_records: >-
+          {{
+            volume_records
+            | selectattr('name', 'equalto', svm_name_normalized ~ '_root')
+            | list
+          }}
+        chosen_root_records: "{{ flagged_root_records if flagged_root_records | length > 0 else named_root_records }}"
+
+    - name: Validate that the SVM root volume was found
+      ansible.builtin.assert:
+        that:
+          - root_volume_name | default('') | length > 0
+        fail_msg: >-
+          Expected the SVM root volume on {{ svm_name_normalized }} before
+          refreshing a load-sharing mirror set.
+
+    - name: Read SnapMirror relationships for the SVM root volume
+      netapp.ontap.na_ontap_rest_cli:
+        command: snapmirror
+        verb: GET
+        params:
+          source-path: "{{ svm_name_normalized }}:{{ root_volume_name }}"
+          fields: destination-path,type,state
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      register: ls_set_info
+
+    - name: Select load-sharing relationships
+      ansible.builtin.set_fact:
+        load_sharing_records: "{{ load_sharing_records | default([]) + [row] }}"
+      vars:
+        relationship_type: "{{ item.type | default(item['relationship-type'] | default('')) | string | lower }}"
+        row:
+          destination: "{{ item['destination-path'] | default(item.destination_path | default('')) }}"
+          relationship_type: "{{ relationship_type }}"
+      loop: "{{ (ls_set_info.msg | default({})).records | default([]) }}"
+      when: relationship_type == 'ls'
+      loop_control:
+        label: "{{ item['destination-path'] | default(item.destination_path | default('unknown destination')) }}"
+
+    - name: Note that no load-sharing set is present
+      ansible.builtin.debug:
+        msg: >-
+          No load-sharing SnapMirror set exists for
+          {{ svm_name_normalized }}:{{ root_volume_name }}.
+          The volume and the audit configuration do not need one.
+          Creating the volume with a junction path updates a set
+          automatically when one exists. The manual refresh was skipped.
+      when: load_sharing_records | default([]) | length == 0
+
+    - name: Show the load-sharing mirror refresh
+      ansible.builtin.debug:
+        msg: >-
+          Refreshing the load-sharing set for
+          {{ svm_name_normalized }}:{{ root_volume_name }}.
+          Destinations: {{ load_sharing_records | map(attribute='destination') | join(', ') }}.
+      when: load_sharing_records | default([]) | length > 0
+
+    - name: Update load-sharing mirrors
+      netapp.ontap.na_ontap_rest_cli:
+        command: snapmirror/update-ls-set
+        verb: POST
+        body:
+          source-path: "{{ svm_name_normalized }}:{{ root_volume_name }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      when: load_sharing_records | default([]) | length > 0
+
+    - name: Create and enable auditing configuration for the SVM
+      netapp.ontap.na_ontap_vserver_audit:
+        state: present
+        log_path: "{{ audit_log_junction_path }}"
+        vserver: "{{ svm_name_normalized }}"
+        enabled: true
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false

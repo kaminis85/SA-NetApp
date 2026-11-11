@@ -119,6 +119,12 @@ customization:
       configure_svm_dns:
         type: grain
         position: {x: 360, y: 1520}
+      configure_nfs_export_policy:
+        type: grain
+        position: {x: 640, y: 1520}
+      configure_svm_audit_log:
+        type: grain
+        position: {x: 920, y: 1520}
   launch-form:
     categories:
       - name: ONTAP Storage Setup
@@ -204,6 +210,12 @@ customization:
               - name: svm_mgmt_lif_gateway
               - name: svm_dns_servers
               - name: svm_dns_domain
+          - name: Volume Configuration
+            inputs:
+              - name: nfs_client_match
+              - name: audit_log_volume_name
+              - name: audit_log_volume_size_gb
+              - name: audit_log_aggregate
 
 inputs:
   agent:
@@ -447,7 +459,8 @@ inputs:
       and the aggregate names from the node rows are assigned to it. Leave
       this blank to skip SVM creation, the protocol services, the load-sharing
       SnapMirror, the SVM management LIF, the default route,
-      vsadmin, the SVM login banner, and SVM DNS.
+      vsadmin, the SVM login banner, SVM DNS, the NFS export policy rule,
+      and the audit log volume.
   allowed_protocols:
     type: string
     style: multi-select
@@ -554,6 +567,55 @@ inputs:
       Leave both blank to skip SVM DNS. Set only one and the SVM DNS task
       fails. This task runs after the default route. The default route runs
       after the management LIF, and that LIF runs after the SVM.
+  nfs_client_match:
+    type: string
+    default: ""
+    description: >-
+      IPv4 subnet for a new rule on the SVM default export policy. Example:
+      192.168.52.0/24. The rule index is 1. The protocol is nfs. Read-only,
+      read-write, and superuser security are sys, and suid is allowed. Those
+      values are fixed. This task runs after the SVM task. nfs must be one of
+      the protocols selected for the SVM. If nfs is not selected, this task
+      fails. Leave this blank to skip the export policy rule. Leave the SVM
+      name blank to skip it with the SVM task.
+  audit_log_volume_name:
+    type: string
+    default: ""
+    description: >-
+      Name of the FlexVol that stores the SVM audit logs. Example: audit_log.
+      The name starts with a letter or underscore and contains only letters,
+      numbers, and underscores. The volume is mounted at /<volume name>, and
+      SVM auditing uses that same path. Fill this in together with
+      audit_log_volume_size_gb and audit_log_aggregate. Leave all three blank
+      to skip the volume, the mirror update, and auditing. Set any of them
+      and leave one blank and the audit log task fails.
+  audit_log_volume_size_gb:
+    type: string
+    default: ""
+    description: >-
+      Size of the audit log FlexVol in gigabytes. Enter the number only.
+      Example: 50. Use a whole number from 1 to 9999999. The volume is
+      online, uses export policy default, has no space guarantee, and has no
+      snapshot reserve. Fill this in together with the volume name and
+      audit_log_aggregate. Leave all three blank to skip the volume, the
+      mirror update, and auditing. Set any of them and leave one blank and
+      the audit log task fails.
+  audit_log_aggregate:
+    type: string
+    default: ""
+    description: >-
+      Aggregate that holds the audit log FlexVol. Example:
+      AA02_C800_01_SSD_CAP_1. Use an aggregate name from the node
+      configuration rows. This task runs after the SVM task. It creates the
+      FlexVol, then refreshes a load-sharing mirror set when one already
+      exists, then creates and enables SVM auditing. The volume and the
+      audit configuration do not need a SnapMirror relationship. Creating
+      the volume with a junction path updates an existing load-sharing set
+      automatically. Fill this in together with the volume name
+      and audit_log_volume_size_gb. Leave all three blank to skip the volume,
+      the mirror refresh, and auditing. Set any of them and leave one blank
+      and the task fails. Leave the SVM name blank to skip this with the
+      SVM task.
 
 grains:
   update_cluster_location:
@@ -1090,3 +1152,41 @@ grains:
         - svm_name: '{{ .inputs.svm_name }}'
         - svm_dns_servers: '{{ .inputs.svm_dns_servers }}'
         - svm_dns_domain: '{{ .inputs.svm_dns_domain }}'
+
+  configure_nfs_export_policy:
+    kind: ansible
+    when: '{% if .inputs.svm_name != "" and .inputs.nfs_client_match != "" %}true{% else %}false{% endif %}'
+    depends-on: configure_ontap_svm
+    spec:
+      source:
+        store: SA-NetApp
+        path: assets/ansible/netapp-ontap/configure_nfs_export_policy.yaml
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+        - ontap_username: '{{ .inputs.ontap_username }}'
+        - ontap_password: '{{ .inputs.ontap_password }}'
+        - svm_name: '{{ .inputs.svm_name }}'
+        - allowed_protocols: '{{ .inputs.allowed_protocols }}'
+        - nfs_client_match: '{{ .inputs.nfs_client_match }}'
+
+  configure_svm_audit_log:
+    kind: ansible
+    when: '{% if .inputs.svm_name != "" %}{% if .inputs.audit_log_volume_name != "" or .inputs.audit_log_volume_size_gb != "" or .inputs.audit_log_aggregate != "" %}true{% else %}false{% endif %}{% else %}false{% endif %}'
+    depends-on: configure_ontap_svm
+    spec:
+      source:
+        store: SA-NetApp
+        path: assets/ansible/netapp-ontap/configure_svm_audit_log.yaml
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+        - ontap_username: '{{ .inputs.ontap_username }}'
+        - ontap_password: '{{ .inputs.ontap_password }}'
+        - svm_name: '{{ .inputs.svm_name }}'
+        - node_specs: '{{ .inputs.node_specs }}'
+        - audit_log_volume_name: '{{ .inputs.audit_log_volume_name }}'
+        - audit_log_volume_size_gb: '{{ .inputs.audit_log_volume_size_gb }}'
+        - audit_log_aggregate: '{{ .inputs.audit_log_aggregate }}'
