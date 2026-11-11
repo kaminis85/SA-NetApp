@@ -1,12 +1,17 @@
 # Aggregate names come from the node configuration table.
 # The SVM is created in the IPspace from Network Configuration.
 # Protocols are nfs, iscsi, or both.
+# Each selected protocol license is looked up by package name before the SVM
+# is created. An installed entry is a license row with a serial number, which
+# is the row system license show prints. Each of those rows must have
+# licenses.compliance.state compliant. The run shows the owner, serial number,
+# installed license, expiration, and that compliance state.
 # nfs starts NFSv3 and NFSv4.1 and disables UDP.
 # iscsi starts the iSCSI service.
 # The load-sharing SnapMirror, vsadmin, the SVM login banner, the management LIF,
 # the default route, and SVM DNS are separate tasks.
-# SVM name, IPspace, protocols, and aggregate names are checked just
-# before the SVM is created.
+# SVM name, IPspace, protocols, aggregate names, and the selected protocol
+# licenses are checked just before the SVM is created.
 # NVMe and S3 are not configured here.
 - name: Configure the ONTAP SVM
   hosts: localhost
@@ -119,6 +124,127 @@
       loop: "{{ protocol_list }}"
       loop_control:
         label: "{{ item }}"
+
+    # na_ontap_license only adds or removes keys. na_ontap_rest_info accepts
+    # the collection subset cluster/licensing/licenses, not the path
+    # cluster/licensing/licenses/{name}. parameters.name is
+    # GET /cluster/licensing/licenses?name=nfs, and that record is the same
+    # package as GET /cluster/licensing/licenses/{name}. The path name is the
+    # lowercase package, nfs or iscsi. An unlicensed package returns no records.
+    # The licenses list is what "system license show" prints for that package:
+    # owner, serial number, installed license, and expiration. A row with no
+    # serial number is not one of those entries. Compliance for each installed
+    # serial is licenses.compliance.state, not the package summary state.
+    - name: Read each selected license package
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - cluster/licensing/licenses
+        parameters:
+          name: "{{ item }}"
+        fields:
+          - name
+          - description
+          - licenses.owner
+          - licenses.serial_number
+          - licenses.installed_license
+          - licenses.expiry_time
+          - licenses.active
+          - licenses.compliance.state
+      loop: "{{ protocol_list }}"
+      loop_control:
+        label: "{{ item }}"
+      register: license_lookup
+
+    - name: Record each selected license package
+      ansible.builtin.set_fact:
+        selected_license_packages: "{{ selected_license_packages | default([]) + [package_row] }}"
+      vars:
+        package_records: >-
+          {{
+            (item.ontap_info.cluster_licensing_licenses | default({})).records
+            | default([])
+          }}
+        package_record: "{{ package_records | first | default({}) }}"
+        license_entries: "{{ package_record.licenses | default([]) }}"
+        installed_entries: >-
+          {{
+            license_entries
+            | selectattr('serial_number', 'defined')
+            | rejectattr('serial_number', 'equalto', '')
+            | list
+          }}
+        package_row:
+          protocol: "{{ item.item }}"
+          name: "{{ package_record.name | default('') | string | trim }}"
+          description: "{{ package_record.description | default('') | string | trim }}"
+          licenses: "{{ license_entries }}"
+          installed_entries: "{{ installed_entries }}"
+          compliance_states: >-
+            {{
+              installed_entries
+              | selectattr('compliance.state', 'defined')
+              | map(attribute='compliance.state')
+              | map('string')
+              | map('trim')
+              | map('lower')
+              | list
+            }}
+      loop: "{{ license_lookup.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Show that each selected protocol license is installed
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.protocol }} license package
+          {{ item.name if item.name | length > 0 else 'not installed' }}
+          {{ ('(' ~ item.description ~ ')') if item.description | length > 0 else '' }}.
+          Installed serials: {{ item.installed_entries | length }}.
+          licenses.compliance.state:
+          {{ item.compliance_states | join(', ') if item.compliance_states | length > 0 else 'not installed' }}.
+      loop: "{{ selected_license_packages }}"
+      loop_control:
+        label: "{{ item.protocol }}"
+
+    - name: Show each license entry
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.0.protocol }} serial
+          {{ item.1.serial_number | default('none') }},
+          owner {{ item.1.owner | default('') }},
+          installed license {{ item.1.installed_license | default('') }},
+          expiration {{ item.1.expiry_time | default('none') }},
+          licenses.compliance.state {{ (item.1.compliance | default({})).state | default('') }},
+          active {{ item.1.active | default(false) }}.
+      loop: "{{ selected_license_packages | subelements('licenses', skip_missing=True) }}"
+      loop_control:
+        label: "{{ item.0.protocol }} {{ item.1.serial_number | default('') }}"
+
+    - name: Verify the selected protocol licenses are installed
+      ansible.builtin.assert:
+        that:
+          - item.name | length > 0
+          - item.name | lower == item.protocol
+          - item.installed_entries | length > 0
+          - item.compliance_states | length == item.installed_entries | length
+          - item.compliance_states | unique | list == ['compliant']
+        fail_msg: >-
+          The {{ item.protocol }} license must be installed and every serial
+          must have licenses.compliance.state compliant before the
+          {{ item.protocol }} service is enabled. Package
+          {{ item.name if item.name | length > 0 else 'not installed' }}.
+          licenses.compliance.state:
+          {{ item.compliance_states | join(', ') if item.compliance_states | length > 0 else 'not installed' }}.
+      loop: "{{ selected_license_packages }}"
+      loop_control:
+        label: "{{ item.protocol }}"
 
     - name: Show the aggregate list for the SVM
       ansible.builtin.debug:

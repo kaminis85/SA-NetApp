@@ -455,9 +455,14 @@ inputs:
     allowed-values: ["nfs", "iscsi"]
     description: >-
       Protocols allowed on the SVM. The dropdown starts empty. Choose nfs,
-      iscsi, or both. nfs starts the NFS service with NFSv3 and NFSv4.1
-      enabled and UDP disabled. iscsi starts the iSCSI service. At least one
-      protocol is required when the SVM name is set.
+      iscsi, or both. The selected license must already be installed on the
+      cluster, and every serial for that package must have
+      licenses.compliance.state compliant. When license keys or an NLF are
+      entered, this check waits for those licenses to be added. The task shows
+      the owner, serial number, installed license, expiration, and compliance
+      state before the SVM is created. nfs starts the NFS service with
+      NFSv3 and NFSv4.1 enabled and UDP disabled. iscsi starts the iSCSI
+      service. At least one protocol is required when the SVM name is set.
   job_name:
     type: string
     default: 15min
@@ -958,7 +963,7 @@ grains:
   configure_ontap_svm:
     kind: ansible
     when: '{% if .inputs.svm_name != "" %}true{% else %}false{% endif %}'
-    depends-on: create_data_aggregates, configure_ipspace
+    depends-on: create_data_aggregates, configure_ipspace, add_licenses
     spec:
       source:
         store: SA-NetApp
