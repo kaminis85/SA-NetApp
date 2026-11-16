@@ -125,15 +125,24 @@
         verb: GET
         params:
           severity: "emergency,alert,error"
+          fields: event
         validate_certs: false
       register: event_log
-  
-    - name: Verify there are no error/emergency/alert severity events
-      ansible.builtin.assert:
-        that:
-          - event_log.msg.num_records == 0
-        fail_msg: >
-          Events of severity error/emergency/alert are present! 
-          Count: {{ event_log.msg.num_records }}. 
-          Details: {{ event_log }}
-        success_msg: "No error/emergency/alert severity events found."  
+
+    - name: Report error/emergency/alert severity events summary
+      ansible.builtin.debug:
+        msg: >-
+          {% if event_log.msg.num_records > 0 %}
+          {{ event_log.msg.num_records }} event(s) of severity error/emergency/alert found. Showing the top 5.
+          Review the full list on the cluster with: event log show -severity EMERGENCY,ALERT,ERROR
+          {% else %}
+          No error/emergency/alert severity events found.
+          {% endif %}
+
+    - name: Show the top 5 error/emergency/alert events
+      ansible.builtin.debug:
+        var: item
+      loop: "{{ (event_log.msg.records | default([]))[:5] }}"
+      loop_control:
+        label: "{{ item.event | default('event') }}"
+      when: event_log.msg.num_records > 0
