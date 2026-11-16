@@ -60,8 +60,9 @@
       netapp.ontap.na_ontap_rest_info:
         gather_subset:
           - support/autosupport
+        # Configuration is cluster-scoped. "node" is not a valid field and
+        # ONTAP rejects the query with error 262197.
         fields:
-          - node
           - mail_hosts
           - from
           - to
@@ -83,7 +84,7 @@
         node_records: >-
           {{
             autosupport_records
-            | selectattr('node.name', 'defined')
+            | selectattr('node', 'defined')
             | selectattr('node.name', 'equalto', item.node)
             | list
           }}
