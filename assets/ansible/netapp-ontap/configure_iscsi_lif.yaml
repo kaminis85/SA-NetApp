@@ -1,0 +1,139 @@
+---
+- name: Configure iSCSI LIFs
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    node_rows: >-
+      {{
+        (node_specs | from_json)
+        if node_specs is string
+        else node_specs
+      }}
+    raw_protocols: "{{ allowed_protocols | default('[]') }}"
+    decoded_protocols: >-
+      {{
+        [] if (raw_protocols | string | trim) in ['', '[]']
+        else (
+          raw_protocols | from_json
+          if raw_protocols is string and (raw_protocols | string | trim) is match('^\\[')
+          else (
+            raw_protocols if raw_protocols is not string
+            else raw_protocols.split(',')
+          )
+        )
+      }}
+    protocol_list: >-
+      {{
+        decoded_protocols
+        | map('string')
+        | map('trim')
+        | map('lower')
+        | reject('equalto', '')
+        | unique
+        | list
+      }}
+
+  tasks:
+
+      - name: Skip iSCSI LIF configuration when ISCSI is not a selected protocol
+        block:
+          - name: Report iSCSI protocol selection
+            ansible.builtin.debug:
+              msg: >-
+                {% if 'iscsi' in protocol_list %}
+                iSCSI is selected. Proceeding with iSCSI LIF configuration.
+                {% else %}
+                iSCSI is not selected. Skipping iSCSI configuration.
+                {% endif %}
+
+          - name: Skip the play when iSCSI is not selected
+            ansible.builtin.meta: end_play
+            when: "'iscsi' not in protocol_list"
+
+      - name: Normalize node rows
+        ansible.builtin.set_fact:
+          node_plan: "{{ node_plan | default([]) + [normalized_row] }}"
+        vars:
+          normalized_row:
+            node_name: "{{ item.node_name | default(item['Node Name'], true) | default('', true) | trim }}"
+            iscsi_a_lif_name: "{{ item.iscsi_a_lif_name | default(item['iSCSI A LIF Name'], true) | default('', true) | trim }}"
+            iscsi_a_lif_address: "{{ item.iscsi_a_lif_address | default(item['iSCSI A LIF Address'], true) | default('', true) | trim }}"
+            iscsi_a_lif_netmask: "{{ item.iscsi_a_lif_netmask | default(item['iSCSI A LIF Netmask'], true) | default('', true) | trim }}"
+            iscsi_b_lif_name: "{{ item.iscsi_b_lif_name | default(item['iSCSI B LIF Name'], true) | default('', true) | trim }}"
+            iscsi_b_lif_address: "{{ item.iscsi_b_lif_address | default(item['iSCSI B LIF Address'], true) | default('', true) | trim }}"
+            iscsi_b_lif_netmask: "{{ item.iscsi_b_lif_netmask | default(item['iSCSI B LIF Netmask'], true) | default('', true) | trim }}"
+        loop: "{{ node_rows }}"
+        loop_control:
+          label: "{{ item.node_name | default(item['Node Name'], true) | default('unnamed row', true) }}"
+
+      - name: Validate each requested iSCSI LIF pair
+        ansible.builtin.assert:
+          that:
+            - item.node_name | length > 0
+            - item.iscsi_a_lif_name | length > 0
+            - item.iscsi_a_lif_address | length > 0
+            - item.iscsi_a_lif_netmask | length > 0
+            - item.iscsi_b_lif_name | length > 0
+            - item.iscsi_b_lif_address | length > 0
+            - item.iscsi_b_lif_netmask | length > 0
+          fail_msg: >-
+            {{ item.node_name }} needs both an A and a B iSCSI LIF name,
+            IP, and netmask.
+        loop: "{{ node_plan }}"
+        loop_control:
+          label: "{{ item.node_name }}"
+
+
+      - name: Validate that iSCSI LIF names are unique
+        ansible.builtin.assert:
+          that:
+            - (node_plan | map(attribute='iscsi_a_lif_name') | list + node_plan | map(attribute='iscsi_b_lif_name') | list) | unique | list | length == node_plan | length * 2
+          fail_msg: >-
+            Each iSCSI LIF name (fabric A and B, across all nodes) must be
+            unique. Requested A names: {{ node_plan | map(attribute='iscsi_a_lif_name') | join(', ') }}.
+            Requested B names: {{ node_plan | map(attribute='iscsi_b_lif_name') | join(', ') }}.
+
+      - name: Configure iSCSI A LIFs
+        netapp.ontap.na_ontap_interface:
+          state: present
+          vserver: "{{ svm_name }}"
+          service_policy: default-data-iscsi
+          home_node: "{{ item.node_name }}"
+          home_port: "{{ ifgrp_name }}-{{ iscsi_a_vlan_id }}"
+          address: "{{ item.iscsi_a_lif_address }}"
+          netmask: "{{ item.iscsi_a_lif_netmask }}"
+          interface_name: "{{ item.iscsi_a_lif_name }}"
+          admin_status: up
+          failover_policy: disabled
+          is_auto_revert: false
+          hostname: "{{ ontap_hostname }}"
+          username: "{{ ontap_username }}"
+          password: "{{ ontap_password }}"
+          https: true
+          validate_certs: false
+        loop: "{{ node_plan }}"
+        loop_control:
+          label: "{{ item.iscsi_a_lif_name }} on {{ item.node_name }}"
+
+      - name: Configure iSCSI B LIFs
+        netapp.ontap.na_ontap_interface:
+          state: present
+          vserver: "{{ svm_name }}"
+          service_policy: default-data-iscsi
+          home_node: "{{ item.node_name }}"
+          home_port: "{{ ifgrp_name }}-{{ iscsi_b_vlan_id }}"
+          address: "{{ item.iscsi_b_lif_address }}"
+          netmask: "{{ item.iscsi_b_lif_netmask }}"
+          interface_name: "{{ item.iscsi_b_lif_name }}"
+          admin_status: up
+          failover_policy: disabled
+          is_auto_revert: false
+          hostname: "{{ ontap_hostname }}"
+          username: "{{ ontap_username }}"
+          password: "{{ ontap_password }}"
+          https: true
+          validate_certs: false
+        loop: "{{ node_plan }}"
+        loop_control:
+          label: "{{ item.iscsi_b_lif_name }} on {{ item.node_name }}"

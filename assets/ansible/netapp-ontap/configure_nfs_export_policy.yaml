@@ -1,10 +1,12 @@
-# Adds one rule to the SVM default export policy for the NFS client subnet.
-# The policy name is default. The protocol is nfs. The rule index is 1.
-# Read-only, read-write, and superuser security are sys, and suid is allowed.
-# Those values are fixed.
-# Leave nfs_client_match blank to skip this task.
-# This task runs after the SVM task. nfs must be one of the SVM protocols.
-- name: Create the NFS export policy rule
+# Adds rule index 1 on the SVM default export policy for the NFS client
+# subnet, then assigns that policy to the SVM root volume.
+# Protocol is nfs. Read-only, read-write, and superuser security are sys,
+# and suid is allowed. Those values are fixed.
+# The root volume already exists. It is read from the cluster: the volume
+# marked is_svm_root, or named <SVM name>_root with hyphens as underscores.
+# Leave nfs_client_match blank to skip. Runs after the SVM task.
+# nfs must be a selected SVM protocol.
+- name: Configure the NFS export policy
   hosts: localhost
   connection: local
   gather_facts: false
@@ -70,7 +72,8 @@
         msg: >-
           SVM {{ svm_name_normalized }} default export policy, rule index 1,
           client match {{ nfs_client_match_normalized }}, protocol nfs,
-          ro sys, rw sys, superuser sys, suid allowed.
+          ro sys, rw sys, superuser sys, suid allowed. The SVM root volume
+          is then assigned export policy default.
 
     - name: Create a new rule for the SVM NFS subnet in the default export policy
       netapp.ontap.na_ontap_export_policy_rule:
@@ -89,6 +92,84 @@
         super_user_security:
           - sys
         allow_suid: true
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+
+    - name: Get the SVM root volume information
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - storage/volumes
+        parameters:
+          name: "*root"
+          svm.name: "{{ svm_name_normalized }}"
+        fields:
+          - name
+          - is_svm_root
+      register: svm_rootvol
+      no_log: true
+
+    - name: Select the SVM root volume
+      ansible.builtin.set_fact:
+        root_volume_name: "{{ (chosen_root_records | first | default({})).name | default('') }}"
+      vars:
+        volume_records: >-
+          {{
+            (svm_rootvol.ontap_info.storage_volumes | default({})).records
+            | default([])
+          }}
+        flagged_root_records: >-
+          {{
+            volume_records
+            | selectattr('is_svm_root', 'defined')
+            | selectattr('is_svm_root')
+            | list
+          }}
+        root_name_candidates:
+          - "{{ (svm_name_normalized | replace('-', '_')) ~ '_root' }}"
+          - "{{ svm_name_normalized ~ '_root' }}"
+        named_root_records: >-
+          {{
+            volume_records
+            | selectattr('name', 'in', root_name_candidates)
+            | list
+          }}
+        chosen_root_records: "{{ flagged_root_records if flagged_root_records | length > 0 else named_root_records }}"
+
+    - name: Validate that the SVM root volume was found
+      ansible.builtin.assert:
+        that:
+          - root_volume_name | default('') | length > 0
+        fail_msg: >-
+          Expected the SVM root volume on {{ svm_name_normalized }} before
+          assigning export policy default. Looked for the volume marked
+          is_svm_root, then <SVM name>_root with hyphens replaced by
+          underscores.
+
+    - name: Show the SVM root volume export policy
+      ansible.builtin.debug:
+        msg: >-
+          SVM {{ svm_name_normalized }} root volume {{ root_volume_name }}
+          will use export policy default.
+
+    # policy on the existing volume is volume modify -policy, and only
+    # changes the volume when the policy is not already default.
+    - name: Assign the default export policy to the SVM root volume
+      netapp.ontap.na_ontap_volume:
+        state: present
+        vserver: "{{ svm_name_normalized }}"
+        name: "{{ root_volume_name }}"
+        policy: default
         hostname: "{{ ontap_hostname }}"
         username: "{{ ontap_username }}"
         password: "{{ ontap_password }}"

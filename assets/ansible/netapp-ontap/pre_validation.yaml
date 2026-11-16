@@ -1,0 +1,175 @@
+---
+- name: Pre-Validation Tasks
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+
+    - name: Get cluster readiness information
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        gather_subset:
+        - cluster/nodes
+        fields: 
+          - "state"
+        https: true
+        validate_certs: false
+      register: cluster_output
+
+    - name: Verify cluster readiness information is not empty
+      ansible.builtin.assert:
+        that:
+          - cluster_output.ontap_info['cluster/nodes'].records | length > 0
+        fail_msg: "No cluster node records were returned - cannot validate cluster readiness."
+
+    - name: Verify that all individual nodes in the cluster are healthy
+      ansible.builtin.assert:
+        that:
+          - item.state == 'up'
+        fail_msg: "Node {{ item.name }} is not up! Current state: {{ item.state }}"
+        success_msg: "Node {{ item.name }} is up."
+      loop: "{{ cluster_output.ontap_info['cluster/nodes'].records }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Get storage disk information
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        gather_subset:
+        - storage/disks
+        fields: 
+          - "state"
+          - "container_type"
+          - "error"
+        https: true
+        validate_certs: false
+      register: disk_output
+
+    - name: Verify storage disk information is not empty
+      ansible.builtin.assert:
+        that:
+          - disk_output.ontap_info['storage/disks'].records | length > 0
+        fail_msg: "No storage disk records were returned - cannot validate disk presence."
+  
+    - name: Verify disks are present and none are broken
+      ansible.builtin.assert:
+        that:
+          - >-
+            disk_output.ontap_info['storage/disks'].records
+            | selectattr('state', 'ne', 'present')
+
+            | list | length == 0
+          - >-
+            disk_output.ontap_info['storage/disks'].records
+            | selectattr('container_type', 'in', ['broken', 'unknown', 'unsupported'])
+
+            | list | length == 0
+          - >-
+            disk_output.ontap_info['storage/disks'].records
+            | selectattr('error', 'defined')
+
+            | list | length == 0
+        fail_msg: >-
+          Disk pre-validation failed! Unhealthy disks found:
+          {{
+            disk_output.ontap_info['storage/disks'].records
+            | rejectattr('state', 'eq', 'present')
+            | list
+            +
+            disk_output.ontap_info['storage/disks'].records
+            | selectattr('container_type', 'in', ['broken', 'unknown', 'unsupported'])
+            | list
+            +
+            disk_output.ontap_info['storage/disks'].records
+            | selectattr('error', 'defined')
+            | list
+          }}
+        success_msg: >-
+          Pre-validation passed: All {{ disk_output.ontap_info['storage/disks'].records | length }} disks are present and healthy.
+          {{ disk_output.ontap_info['storage/disks'].records }}
+
+    - name: Get Disk Shelf Information
+      netapp.ontap.na_ontap_rest_cli:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        command: storage/shelf
+        params:
+          fields: state
+        verb: GET
+        validate_certs: false
+      register: shelf_output
+    
+    - name: Validate all shelves are online
+      ansible.builtin.assert:
+        that:
+          - item.state == 'online'
+        fail_msg: "Shelf {{ item.shelf }} is not online (state: {{ item.state }})."
+        success_msg: "Shelf {{ item.shelf }} is online."
+      loop: "{{ shelf_output.msg.records }}"
+      loop_control:
+        label: "{{ item.shelf }}"
+
+    - name: Get root aggregate information
+      netapp.ontap.na_ontap_rest_cli:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        command: storage/aggregate
+        params:
+          root: "true"
+          fields: state
+        verb: GET
+        validate_certs: false
+      register: aggregate_output
+    
+    - name: Verify root aggregate information is not empty
+      ansible.builtin.assert:
+        that:
+          - (aggregate_output.msg.num_records | default(0)) > 0
+        fail_msg: "No aggregate records were returned - cannot validate root aggregates."
+
+    - name: Verify that all root aggregates are online
+      ansible.builtin.assert:
+         that:
+           - item.state == 'online'
+         fail_msg: "Aggregate {{ item.aggregate }} is not online! Current state: {{ item.state }}"
+         success_msg: "Aggregate {{ item.aggregate }} is online."
+      loop: "{{ aggregate_output.msg.records }}"
+      loop_control:
+         label: "{{ item.aggregate }}"
+    
+    - name: Get logical interface information
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        gather_subset:
+        - network/ip/interfaces
+        fields: 
+          - state 
+          - scope
+        https: true
+        validate_certs: false
+      register: lif_output
+
+    - name: Verify logical interface information is not empty
+      ansible.builtin.assert:
+        that:
+          - lif_output.ontap_info['network/ip/interfaces'].records | selectattr('scope', 'equalto', 'cluster') | list | length > 0
+        fail_msg: "No cluster-scoped LIF records were returned - cannot validate LIF status."
+
+    - name: Verify that all cluster, cluster management and node management LIFs are up
+      ansible.builtin.assert:
+        that:
+          - item.state == 'up'
+        fail_msg: "LIF {{ item.name }} is not up! Current state: {{ item.state }}"
+        success_msg: "LIF {{ item.name }} is up."
+      loop: "{{ lif_output.ontap_info['network/ip/interfaces'].records | selectattr('scope', 'equalto', 'cluster') | list }}"
+      loop_control:
+        label: "{{ item.name }}"
