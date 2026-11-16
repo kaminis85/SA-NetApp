@@ -28,12 +28,14 @@
           changed: false
       when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
 
+    # option-value is not a CLI key, so a private CLI GET omits it unless fields asks for it.
     - name: Read CDP
       netapp.ontap.na_ontap_rest_cli:
         command: options
         verb: GET
         params:
           option_name: cdpd.enable
+          fields: option-value
         hostname: "{{ ontap_hostname }}"
         username: "{{ ontap_username }}"
         password: "{{ ontap_password }}"
