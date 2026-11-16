@@ -3,8 +3,79 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  vars:
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
 
   tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Read LLDP
+      netapp.ontap.na_ontap_rest_cli:
+        command: options
+        verb: GET
+        params:
+          option_name: lldp.enable
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      register: lldp_show
+
+    - name: Record the LLDP setting
+      ansible.builtin.set_fact:
+        live_value: >-
+          {{
+            (
+              (lldp_show.msg.records | default([lldp_show.msg | default({})]) | first | default({})).option_value
+              | default(
+                  (lldp_show.msg.records | default([lldp_show.msg | default({})]) | first | default({}))['option-value']
+                  | default('')
+                )
+            ) | string | trim | lower
+          }}
+        applied_value: "on"
+
+    - name: Confirm LLDP was read
+      ansible.builtin.assert:
+        that:
+          - live_value in ['on', 'off']
+        fail_msg: >-
+          Could not read lldp.enable. The cluster returned '{{ live_value }}'.
+
+    - name: Record whether LLDP still needs to change
+      ansible.builtin.set_fact:
+        changed_now: "{{ live_value != applied_value }}"
+        keep_original: >-
+          {{
+            (incoming_prior.changed | default(false) | bool)
+            and (
+              (live_value != applied_value)
+              or (
+                (incoming_prior.applied is defined)
+                and (live_value == incoming_prior.applied)
+              )
+            )
+          }}
 
     - name: Enable LLDP on the storage controller nodes
       netapp.ontap.na_ontap_rest_cli:
@@ -19,3 +90,24 @@
         password: "{{ ontap_password }}"
         https: true
         validate_certs: false
+
+    - name: Keep the earlier LLDP value when this launch did not find a new change
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: true
+          previous: "{{ incoming_prior.previous }}"
+          applied: "{{ applied_value }}"
+      when: keep_original | bool
+
+    - name: Record the LLDP value from this launch
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: "{{ changed_now | bool }}"
+          previous: "{{ live_value }}"
+          applied: "{{ applied_value }}"
+      when: not (keep_original | bool)
+
+    - name: Export the recorded LLDP change
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ prior_export | to_json }}"

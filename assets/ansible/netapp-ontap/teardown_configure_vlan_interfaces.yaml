@@ -29,6 +29,16 @@
         [] if (node_specs | default('[]') | string | trim) in ['', '[]']
         else (node_specs | from_json if node_specs is string else node_specs)
       }}
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
     network_inputs:
       - role: In-band management
         name: "{{ ib_mgmt_vlan_name | default('') | string | trim }}"
@@ -45,6 +55,35 @@
 
   tasks:
 
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Note that this deployment did not create a VLAN interface
+      ansible.builtin.debug:
+        msg: This deployment did not create a VLAN interface, so End leaves them unchanged.
+      when: >-
+        not (incoming_prior.changed | default(false) | bool)
+        or (incoming_prior.added | default([]) | length == 0)
+
+    - name: Stop when this deployment did not create a VLAN interface
+      ansible.builtin.meta: end_play
+      when: >-
+        not (incoming_prior.changed | default(false) | bool)
+        or (incoming_prior.added | default([]) | length == 0)
+
+    - name: Use the VLAN interfaces this deployment created
+      ansible.builtin.set_fact:
+        vlan_ports: "{{ incoming_prior.added }}"
+        ifgrp_name_normalized: "{{ (incoming_prior.added | first).parent }}"
+
     - name: Select networks that have both a VLAN name and a VLAN ID
       ansible.builtin.set_fact:
         vlan_plan: "{{ network_inputs | selectattr('name') | selectattr('id') | list }}"
@@ -52,11 +91,15 @@
     - name: Note that no VLAN was requested
       ansible.builtin.debug:
         msg: No VLAN has both a name and an ID, so no VLAN interface was deleted.
-      when: vlan_plan | length == 0 or ifgrp_name_normalized | length == 0
+      when: >-
+        (vlan_plan | length == 0 or ifgrp_name_normalized | length == 0)
+        and (incoming_prior.added | default([]) | length == 0)
 
     - name: Stop when no VLAN was requested
       ansible.builtin.meta: end_play
-      when: vlan_plan | length == 0 or ifgrp_name_normalized | length == 0
+      when: >-
+        (vlan_plan | length == 0 or ifgrp_name_normalized | length == 0)
+        and (incoming_prior.added | default([]) | length == 0)
 
     - name: Normalize node rows
       ansible.builtin.set_fact:
@@ -88,11 +131,15 @@
     - name: Note that no node lists data ports
       ansible.builtin.debug:
         msg: No node lists data ports, so no VLAN interface was deleted.
-      when: port_plan | default([]) | length == 0
+      when: >-
+        port_plan | default([]) | length == 0
+        and (incoming_prior.added | default([]) | length == 0)
 
     - name: Stop when no node lists data ports
       ansible.builtin.meta: end_play
-      when: port_plan | default([]) | length == 0
+      when: >-
+        port_plan | default([]) | length == 0
+        and (incoming_prior.added | default([]) | length == 0)
 
     - name: Validate VLAN IDs
       ansible.builtin.assert:
@@ -112,24 +159,15 @@
           Interface group name must look like a0a: the letter a, a number from
           0 to 999 with no leading zeros, and one lowercase letter.
 
-    - name: Record the VLAN interfaces to delete
+    - name: Keep only VLAN interfaces this deployment created
       ansible.builtin.set_fact:
-        vlan_ports: "{{ vlan_ports | default([]) + [row] }}"
-      vars:
-        row:
-          node_name: "{{ item.0.node_name }}"
-          vlan_id: "{{ item.1.id | int }}"
-          port_name: "{{ ifgrp_name_normalized }}-{{ item.1.id }}"
-          port_key: "{{ item.0.node_name }}/{{ ifgrp_name_normalized }}-{{ item.1.id }}"
-      loop: "{{ port_plan | product(vlan_plan) | list }}"
-      loop_control:
-        label: "{{ item.0.node_name }}/{{ ifgrp_name_normalized }}-{{ item.1.id }}"
+        vlan_ports: "{{ incoming_prior.added }}"
 
     - name: Delete the VLAN interfaces
       netapp.ontap.na_ontap_net_vlan:
         state: absent
         node: "{{ item.node_name }}"
-        parent_interface: "{{ ifgrp_name_normalized }}"
+        parent_interface: "{{ item.parent }}"
         vlanid: "{{ item.vlan_id }}"
       loop: "{{ vlan_ports }}"
       loop_control:

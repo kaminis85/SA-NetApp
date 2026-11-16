@@ -20,6 +20,16 @@
     svm_mgmt_lif_name_normalized: "{{ svm_mgmt_lif_name | default('') | string | trim }}"
     svm_mgmt_lif_address_normalized: "{{ svm_mgmt_lif_address | default('') | string | trim }}"
     svm_mgmt_lif_netmask_normalized: "{{ svm_mgmt_lif_netmask | default('') | string | trim }}"
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
     node_rows: >-
       {{
         [] if (node_specs | default('[]') | string | trim) in ['', '[]']
@@ -52,6 +62,17 @@
       - 255.255.255.252
 
   tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
 
     - name: Validate the SVM name
       ansible.builtin.assert:
@@ -263,6 +284,41 @@
 
     # Home node is the node that hosts the SVM root volume, recorded above.
     # Home port is the in-band management VLAN interface, for example a0a-2235.
+    - name: Read SVM network interfaces
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - network/ip/interfaces
+        parameters:
+          svm.name: "{{ svm_name_normalized }}"
+        fields:
+          - name
+      register: lif_info
+
+    - name: Record the management LIF when it is not already present
+      ansible.builtin.set_fact:
+        added_now: "{{ added_now | default([]) + [row] }}"
+      vars:
+        row:
+          id: "{{ svm_name_normalized }}/{{ svm_mgmt_lif_name_normalized }}"
+          svm: "{{ svm_name_normalized }}"
+          name: "{{ svm_mgmt_lif_name_normalized }}"
+        existing_names: >-
+          {{
+            ((lif_info.ontap_info | default({})).network_ip_interfaces | default({})).records
+            | default([])
+            | map(attribute='name')
+            | map('string')
+            | list
+          }}
+      when: svm_mgmt_lif_name_normalized not in existing_names
+
     - name: Create the SVM management LIF
       netapp.ontap.na_ontap_interface:
         state: present
@@ -282,3 +338,24 @@
         https: true
         validate_certs: false
         use_rest: always
+
+    - name: Keep LIFs this deployment already created
+      ansible.builtin.set_fact:
+        added_objects: "{{ incoming_prior.added | default([]) }}"
+      when: incoming_prior.changed | default(false) | bool
+
+    - name: Start a new LIF list when this deployment has not created one
+      ansible.builtin.set_fact:
+        added_objects: []
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Add the management LIF when it was not already on the cluster
+      ansible.builtin.set_fact:
+        added_objects: "{{ added_objects + [item] }}"
+      loop: "{{ added_now | default([]) }}"
+      when: item.id not in (added_objects | map(attribute='id') | list)
+
+    - name: Export the management LIFs this deployment created
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ {'changed': (added_objects | length > 0), 'added': added_objects} | to_json }}"

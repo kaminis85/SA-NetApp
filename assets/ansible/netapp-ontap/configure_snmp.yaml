@@ -3,12 +3,183 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  vars:
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
 
   tasks:
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
     - name: Choose the SNMP protocols for the FIPS mode
       ansible.builtin.set_fact:
         snmp_auth_protocol_selected: "{{ snmp_auth_protocol_fips if (is_fips_enabled | bool) else snmp_auth_protocol }}"
         snmp_priv_protocol_selected: "{{ snmp_priv_protocol_fips if (is_fips_enabled | bool) else snmp_priv_protocol }}"
+
+    - name: Read SNMP
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - support/snmp
+        fields:
+          - enabled
+          - contact
+          - location
+      register: snmp_info
+
+    - name: Read SNMP users
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - support/snmp/users
+        fields:
+          - name
+      register: snmp_users
+
+    - name: Read SNMP traphosts
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - support/snmp/traphosts
+        fields:
+          - host
+      register: snmp_traphosts
+
+    - name: Read the SNMP contact
+      netapp.ontap.na_ontap_rest_cli:
+        command: system/snmp/contact
+        verb: GET
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      register: snmp_contact_show
+
+    - name: Read the SNMP location
+      netapp.ontap.na_ontap_rest_cli:
+        command: system/snmp/location
+        verb: GET
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      register: snmp_location_show
+
+    - name: Record the SNMP configuration
+      ansible.builtin.set_fact:
+        snmp_record: >-
+          {{
+            (snmp_info.ontap_info.support_snmp | default({})).records
+            | default([snmp_info.ontap_info.support_snmp | default({})])
+            | first
+            | default({})
+          }}
+        existing_users: >-
+          {{
+            (snmp_users.ontap_info.support_snmp_users | default({})).records
+            | default([])
+            | map(attribute='name')
+            | map('string')
+            | map('trim')
+            | reject('equalto', '')
+            | list
+          }}
+        existing_traphosts: >-
+          {{
+            (snmp_traphosts.ontap_info.support_snmp_traphosts | default({})).records
+            | default([])
+            | map(attribute='host')
+            | map('string')
+            | map('trim')
+            | reject('equalto', '')
+            | list
+          }}
+
+    - name: Record the SNMP values this launch applies
+      ansible.builtin.set_fact:
+        live_snmp:
+          enabled: "{{ 'true' if (snmp_record.enabled | default(false) | bool) else 'false' }}"
+          contact: "{{ snmp_contact_live }}"
+          location: "{{ snmp_location_live }}"
+        applied_snmp:
+          enabled: "true"
+          contact: "{{ snmp_contact | string if (snmp_contact | default('') | length > 0) else snmp_contact_live }}"
+          location: "{{ snmp_location | string if (snmp_location | default('') | length > 0) else snmp_location_live }}"
+      vars:
+        contact_record: >-
+          {{
+            (snmp_contact_show.msg.records | default([snmp_contact_show.msg | default({})]))
+            | first
+            | default({})
+          }}
+        location_record: >-
+          {{
+            (snmp_location_show.msg.records | default([snmp_location_show.msg | default({})]))
+            | first
+            | default({})
+          }}
+        snmp_contact_live: "{{ contact_record.contact | default('') | string }}"
+        snmp_location_live: "{{ location_record.location | default('') | string }}"
+
+    - name: Start the SNMP user and traphost lists
+      ansible.builtin.set_fact:
+        users_now: []
+        traphosts_now: []
+
+    - name: Include the SNMP community when this launch sets one
+      ansible.builtin.set_fact:
+        users_now: "{{ users_now + [snmp_community | string | trim] }}"
+      when:
+        - not (is_fips_enabled | bool)
+        - snmp_community | default('') | trim | length > 0
+
+    - name: Include the SNMPv3 user when this launch sets one
+      ansible.builtin.set_fact:
+        users_now: "{{ users_now + [snmp_v3_user | string | trim] }}"
+      when: snmp_v3_user | default('') | trim | length > 0
+
+    - name: Include the SNMP traphost when this launch sets one
+      ansible.builtin.set_fact:
+        traphosts_now: "{{ traphosts_now + [traphost_ip | string | trim] }}"
+      when:
+        - not (is_fips_enabled | bool)
+        - traphost_ip | default('') | trim | length > 0
 
     - name: Configure SNMP contact
       netapp.ontap.na_ontap_rest_cli:
@@ -116,3 +287,40 @@
         validate_certs: false
       when: snmp_v3_user | default('') | length > 0
       no_log: true
+
+    - name: Record SNMP users and traphosts this launch adds
+      ansible.builtin.set_fact:
+        added_users_now: "{{ users_now | reject('in', existing_users) | unique | list }}"
+        added_traphosts_now: "{{ traphosts_now | reject('in', existing_traphosts) | unique | list }}"
+
+    - name: Keep SNMP values recorded by an earlier launch
+      ansible.builtin.set_fact:
+        saved_previous: "{{ incoming_prior.previous }}"
+        saved_users: "{{ (incoming_prior.added_users | default([])) + added_users_now }}"
+        saved_traphosts: "{{ (incoming_prior.added_traphosts | default([])) + added_traphosts_now }}"
+      when: incoming_prior.changed | default(false) | bool
+
+    - name: Record the SNMP values from this launch
+      ansible.builtin.set_fact:
+        saved_previous: "{{ live_snmp }}"
+        saved_users: "{{ added_users_now }}"
+        saved_traphosts: "{{ added_traphosts_now }}"
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Export the recorded SNMP change
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: >-
+            {{
+              {
+                'changed': (
+                  (saved_previous != applied_snmp)
+                  or ((saved_users | unique | list | length) > 0)
+                  or ((saved_traphosts | unique | list | length) > 0)
+                ),
+                'previous': saved_previous,
+                'applied': applied_snmp,
+                'added_users': saved_users | unique | list,
+                'added_traphosts': saved_traphosts | unique | list
+              } | to_json
+            }}

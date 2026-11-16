@@ -1,0 +1,140 @@
+---
+# Undo of configure_sp_network.yaml.
+# Restores the previous service-processor address only on nodes whose current
+# address still matches the address this deployment set. Safe to run twice.
+- name: Restore ONTAP service-processor network interfaces
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
+
+  tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Note that this deployment did not change the service processor
+      ansible.builtin.debug:
+        msg: >-
+          This deployment did not change the service-processor network, so End
+          leaves it unchanged.
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Stop when the service processor was not changed
+      ansible.builtin.meta: end_play
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Read the service-processor network
+      netapp.ontap.na_ontap_rest_cli:
+        command: system/service-processor/network
+        verb: GET
+        params:
+          node: "{{ item.node }}"
+          address-family: IPv4
+          fields: enable,dhcp,ip-address,netmask,gateway
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      loop: "{{ incoming_prior.applied | default([]) }}"
+      loop_control:
+        label: "{{ item.node }}"
+      register: sp_show
+      failed_when: false
+
+    - name: Select nodes that still have the address this deployment set
+      ansible.builtin.set_fact:
+        nodes_to_restore: "{{ nodes_to_restore | default([]) + [restore_row] }}"
+      vars:
+        sp_record: >-
+          {{
+            (item.msg.records | default([item.msg | default({})]))
+            | first
+            | default({})
+          }}
+        current_ip: "{{ sp_record.ip_address | default(sp_record['ip-address'] | default('')) | string | trim }}"
+        current_mask: "{{ sp_record.netmask | default('') | string | trim }}"
+        current_gateway: "{{ sp_record.gateway | default('') | string | trim }}"
+        applied_row: "{{ item.item }}"
+        previous_row: >-
+          {{
+            (
+              incoming_prior.previous
+              | selectattr('node', 'equalto', applied_row.node)
+              | list
+              | first
+            ) | default({})
+          }}
+        restore_row:
+          node: "{{ applied_row.node }}"
+          enable: "{{ previous_row.enable | default('false') }}"
+          dhcp: "{{ previous_row.dhcp | default('') }}"
+          ip: "{{ previous_row.ip | default('') }}"
+          mask: "{{ previous_row.mask | default('') }}"
+          gateway: "{{ previous_row.gateway | default('') }}"
+      loop: "{{ sp_show.results }}"
+      when:
+        - not (item.failed | default(false))
+        - current_ip == (applied_row.ip | default('') | string)
+        - current_mask == (applied_row.mask | default('') | string)
+        - current_gateway == (applied_row.gateway | default('') | string)
+        - previous_row.node | default('') | length > 0
+        - previous_row != applied_row
+      loop_control:
+        label: "{{ item.item.node }}"
+
+    - name: Note that the service-processor addresses no longer match this deployment
+      ansible.builtin.debug:
+        msg: >-
+          The service-processor addresses no longer match this deployment, so
+          End leaves them unchanged.
+      when: nodes_to_restore | default([]) | length == 0
+
+    - name: Stop when no service-processor address still matches
+      ansible.builtin.meta: end_play
+      when: nodes_to_restore | default([]) | length == 0
+
+    - name: Restore the service-processor network
+      netapp.ontap.na_ontap_rest_cli:
+        command: system/service-processor/network
+        verb: PATCH
+        params:
+          node: "{{ item.node }}"
+          address-family: IPv4
+        body:
+          enable: "{{ item.enable }}"
+          dhcp: "{{ item.dhcp if item.dhcp | length > 0 else omit }}"
+          ip-address: "{{ item.ip if item.ip | length > 0 else omit }}"
+          netmask: "{{ item.mask if item.mask | length > 0 else omit }}"
+          gateway: "{{ item.gateway if item.gateway | length > 0 else omit }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      loop: "{{ nodes_to_restore }}"
+      loop_control:
+        label: "{{ item.node }}"
+
+    - name: Report the restored service-processor nodes
+      ansible.builtin.debug:
+        msg: "Restored the service-processor network on {{ nodes_to_restore | map(attribute='node') | join(', ') }}."

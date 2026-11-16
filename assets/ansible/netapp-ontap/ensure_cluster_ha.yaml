@@ -3,8 +3,30 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  vars:
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
 
   tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
 
     - name: Discover ONTAP cluster nodes
       netapp.ontap.na_ontap_rest_info:
@@ -38,9 +60,81 @@
           This cluster has {{ node_count }} nodes, so this step made no change.
       when: node_count | int != 2
 
+    - name: Keep the earlier cluster HA change when this launch does not apply
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ incoming_prior | to_json }}"
+      when:
+        - node_count | int != 2
+        - incoming_prior.changed | default(false) | bool
+
+    - name: Record that cluster HA was not changed
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ {'changed': false} | to_json }}"
+      when:
+        - node_count | int != 2
+        - not (incoming_prior.changed | default(false) | bool)
+
     - name: Stop after the two-node check
       ansible.builtin.meta: end_play
       when: node_count | int != 2
+
+    - name: Read cluster HA
+      netapp.ontap.na_ontap_rest_cli:
+        command: cluster/ha
+        verb: GET
+        params:
+          fields: configured
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      register: ha_show
+
+    - name: Record cluster HA
+      ansible.builtin.set_fact:
+        live_value: "{{ 'true' if (ha_flag | bool) else 'false' }}"
+        applied_value: "true"
+      vars:
+        ha_record: >-
+          {{
+            (ha_show.msg.records | default([ha_show.msg | default({})]))
+            | first
+            | default({})
+          }}
+        ha_flag: "{{ ha_record.configured | default('') }}"
+
+    - name: Confirm cluster HA was read
+      ansible.builtin.assert:
+        that:
+          - ha_flag | string | trim | lower in ['true', 'false']
+        fail_msg: >-
+          Could not read cluster HA. The cluster returned '{{ ha_flag | default('') }}'.
+      vars:
+        ha_record: >-
+          {{
+            (ha_show.msg.records | default([ha_show.msg | default({})]))
+            | first
+            | default({})
+          }}
+        ha_flag: "{{ ha_record.configured | default('') }}"
+
+    - name: Record whether cluster HA still needs to change
+      ansible.builtin.set_fact:
+        changed_now: "{{ live_value != applied_value }}"
+        keep_original: >-
+          {{
+            (incoming_prior.changed | default(false) | bool)
+            and (
+              (live_value != applied_value)
+              or (
+                (incoming_prior.applied is defined)
+                and (live_value == incoming_prior.applied)
+              )
+            )
+          }}
 
     - name: Ensure cluster HA status
       netapp.ontap.na_ontap_cluster_ha:
@@ -50,3 +144,24 @@
         password: "{{ ontap_password }}"
         https: true
         validate_certs: false
+
+    - name: Keep the earlier cluster HA value when this launch did not find a new change
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: true
+          previous: "{{ incoming_prior.previous }}"
+          applied: "{{ applied_value }}"
+      when: keep_original | bool
+
+    - name: Record the cluster HA value from this launch
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: "{{ changed_now | bool }}"
+          previous: "{{ live_value }}"
+          applied: "{{ applied_value }}"
+      when: not (keep_original | bool)
+
+    - name: Export the recorded cluster HA change
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ prior_export | to_json }}"

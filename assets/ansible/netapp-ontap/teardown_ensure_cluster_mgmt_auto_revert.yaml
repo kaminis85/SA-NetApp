@@ -1,0 +1,131 @@
+---
+# Undo of ensure_cluster_mgmt_auto_revert.yaml.
+# Turns auto-revert off only on cluster management interfaces where this grain
+# turned it on and it is still on. Safe to run twice.
+- name: Restore cluster management auto-revert
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
+
+  tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Note that this deployment did not change auto-revert
+      ansible.builtin.debug:
+        msg: >-
+          This deployment did not change cluster management auto-revert, so End
+          leaves it unchanged.
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Stop when auto-revert was not changed
+      ansible.builtin.meta: end_play
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Select interfaces where this deployment enabled auto-revert
+      ansible.builtin.set_fact:
+        interfaces_to_restore: "{{ interfaces_to_restore | default([]) + [item.name] }}"
+      loop: "{{ incoming_prior.previous | default([]) }}"
+      when: (item.auto_revert | string) == 'false'
+      loop_control:
+        label: "{{ item.name | default('unnamed interface') }}"
+
+    - name: Note that auto-revert was already enabled
+      ansible.builtin.debug:
+        msg: Auto-revert was already enabled, so End leaves it unchanged.
+      when: interfaces_to_restore | default([]) | length == 0
+
+    - name: Stop when no interface needs auto-revert restored
+      ansible.builtin.meta: end_play
+      when: interfaces_to_restore | default([]) | length == 0
+
+    - name: Read auto-revert
+      netapp.ontap.na_ontap_rest_cli:
+        command: network/interface
+        verb: GET
+        params:
+          interface-name: "{{ item }}"
+          fields: interface-name,is-auto-revert
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      loop: "{{ interfaces_to_restore }}"
+      loop_control:
+        label: "{{ item }}"
+      register: auto_revert_show
+      failed_when: false
+
+    - name: Select interfaces that still have auto-revert enabled
+      ansible.builtin.set_fact:
+        interfaces_still_enabled: "{{ interfaces_still_enabled | default([]) + [item.item] }}"
+      vars:
+        revert_record: >-
+          {{
+            (item.msg.records | default([item.msg | default({})]))
+            | first
+            | default({})
+          }}
+        revert_flag: >-
+          {{
+            revert_record.is_auto_revert
+            | default(revert_record['is-auto-revert'] | default(''))
+            | string
+            | trim
+            | lower
+          }}
+      loop: "{{ auto_revert_show.results }}"
+      when:
+        - not (item.failed | default(false))
+        - revert_flag == 'true'
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Note that auto-revert is no longer enabled on those interfaces
+      ansible.builtin.debug:
+        msg: >-
+          Auto-revert is no longer enabled on the interfaces this deployment
+          changed, so End leaves it unchanged.
+      when: interfaces_still_enabled | default([]) | length == 0
+
+    - name: Stop when those interfaces are no longer enabled
+      ansible.builtin.meta: end_play
+      when: interfaces_still_enabled | default([]) | length == 0
+
+    - name: Restore auto-revert
+      netapp.ontap.na_ontap_interface:
+        is_auto_revert: false
+        interface_name: "{{ item }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      loop: "{{ interfaces_still_enabled }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Report the restored interfaces
+      ansible.builtin.debug:
+        msg: "Turned auto-revert off on {{ interfaces_still_enabled | join(', ') }}."

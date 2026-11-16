@@ -3,6 +3,17 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  vars:
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
 
   tasks:
 
@@ -17,6 +28,131 @@
           - dns_domain_name | default('') | length > 0
         fail_msg: Provide dns_domain_name and a comma-separated dns_servers list.
 
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Read the cluster name
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - cluster
+        fields:
+          - name
+      register: cluster_info
+
+    - name: Read cluster DNS
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - name-services/dns
+        fields:
+          - svm
+          - servers
+          - domains
+      register: dns_info
+
+    - name: Record cluster DNS
+      ansible.builtin.set_fact:
+        live_value:
+          present: "{{ 'true' if ((dns_record.svm | default({})).name | default('') | string | length > 0) else 'false' }}"
+          servers: "{{ dns_servers_live | sort }}"
+          domains: "{{ dns_domains_live | sort }}"
+        applied_value:
+          present: "true"
+          servers: "{{ dns_server_list | sort }}"
+          domains:
+            - "{{ dns_domain_name | string | trim }}"
+      vars:
+        cluster_body: "{{ cluster_info.ontap_info.cluster | default({}) }}"
+        cluster_name_live: >-
+          {{
+            (
+              cluster_body
+              if (cluster_body.name | default('') | string | length > 0)
+              else ((cluster_body.records | default([{}])) | first | default({}))
+            ).name | default('') | string | trim
+          }}
+        dns_records: "{{ (dns_info.ontap_info.name_services_dns | default({})).records | default([]) }}"
+        dns_record: >-
+          {{
+            (
+              dns_records
+              | selectattr('svm.name', 'defined')
+              | selectattr('svm.name', 'equalto', cluster_name_live)
+              | list
+              | first
+            ) | default({})
+          }}
+        dns_servers_live: >-
+          {{
+            dns_record.servers
+            | default([])
+            | map('string')
+            | map('trim')
+            | reject('equalto', '')
+            | list
+          }}
+        dns_domains_live: >-
+          {{
+            dns_record.domains
+            | default([])
+            | map('string')
+            | map('trim')
+            | reject('equalto', '')
+            | list
+          }}
+
+    - name: Confirm the cluster name was read
+      ansible.builtin.assert:
+        that:
+          - cluster_name_live | length > 0
+        fail_msg: The cluster did not return its name.
+      vars:
+        cluster_body: "{{ cluster_info.ontap_info.cluster | default({}) }}"
+        cluster_name_live: >-
+          {{
+            (
+              cluster_body
+              if (cluster_body.name | default('') | string | length > 0)
+              else ((cluster_body.records | default([{}])) | first | default({}))
+            ).name | default('') | string | trim
+          }}
+
+    - name: Record whether DNS still needs to change
+      ansible.builtin.set_fact:
+        changed_now: "{{ live_value != applied_value }}"
+        keep_original: >-
+          {{
+            (incoming_prior.changed | default(false) | bool)
+            and (
+              (live_value != applied_value)
+              or (
+                (incoming_prior.applied is defined)
+                and (live_value == incoming_prior.applied)
+              )
+            )
+          }}
+
     - name: Configure DNS
       netapp.ontap.na_ontap_dns:
         state: present
@@ -27,3 +163,24 @@
         password: "{{ ontap_password }}"
         https: true
         validate_certs: false
+
+    - name: Keep the earlier DNS configuration when this launch did not find a new change
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: true
+          previous: "{{ incoming_prior.previous }}"
+          applied: "{{ applied_value }}"
+      when: keep_original | bool
+
+    - name: Record the DNS configuration from this launch
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: "{{ changed_now | bool }}"
+          previous: "{{ live_value }}"
+          applied: "{{ applied_value }}"
+      when: not (keep_original | bool)
+
+    - name: Export the recorded DNS change
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ prior_export | to_json }}"

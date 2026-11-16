@@ -10,8 +10,29 @@
         if node_specs is string
         else node_specs
       }}
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
 
   tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
 
     - name: Normalize node rows
       ansible.builtin.set_fact:
@@ -43,6 +64,26 @@
         msg: No data ports were provided, so this step made no change.
       when: port_plan | default([]) | length == 0
 
+    - name: Keep the earlier flow-control change when this launch has no data ports
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ incoming_prior | to_json }}"
+      when:
+        - port_plan | default([]) | length == 0
+        - incoming_prior.changed | default(false) | bool
+
+    - name: Record that flow control was not changed
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ {'changed': false} | to_json }}"
+      when:
+        - port_plan | default([]) | length == 0
+        - not (incoming_prior.changed | default(false) | bool)
+
+    - name: Stop when no data ports were provided
+      ansible.builtin.meta: end_play
+      when: port_plan | default([]) | length == 0
+
     - name: Validate node names
       ansible.builtin.assert:
         that:
@@ -62,7 +103,88 @@
         fail_msg: >-
           Each node name can appear only once. Requested names:
           {{ port_plan | map(attribute='node_name') | join(', ') }}.
-      when: port_plan | default([]) | length > 0
+
+    - name: Read port flow control
+      netapp.ontap.na_ontap_rest_cli:
+        command: network/port
+        verb: GET
+        params:
+          fields: node,port,flowcontrol-admin
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      register: port_show
+
+    - name: Record flow control on the data ports
+      ansible.builtin.set_fact:
+        live_value: "{{ (live_value | default([])) + [row] }}"
+      vars:
+        port_records: "{{ port_show.msg.records | default([]) }}"
+        matched_port: >-
+          {{
+            (
+              port_records
+              | selectattr('node', 'equalto', item.0.node_name)
+              | selectattr('port', 'equalto', item.1)
+              | list
+              | first
+            ) | default({})
+          }}
+        flow_value: >-
+          {{
+            matched_port.flowcontrol_admin
+            | default(matched_port['flowcontrol-admin'] | default(''))
+            | string
+            | trim
+            | lower
+          }}
+        row:
+          node: "{{ item.0.node_name }}"
+          port: "{{ item.1 }}"
+          flowcontrol: "{{ flow_value }}"
+      loop: "{{ port_plan | subelements('ports') }}"
+      loop_control:
+        label: "{{ item.0.node_name }}/{{ item.1 }}"
+
+    - name: Confirm flow control was read
+      ansible.builtin.assert:
+        that:
+          - item.flowcontrol in ['none', 'receive', 'send', 'full']
+        fail_msg: >-
+          Could not read flow control for {{ item.node }}/{{ item.port }}.
+          The cluster returned '{{ item.flowcontrol }}'.
+      loop: "{{ live_value }}"
+      loop_control:
+        label: "{{ item.node }}/{{ item.port }}"
+
+    - name: Build the flow-control value this launch applies
+      ansible.builtin.set_fact:
+        live_value: "{{ live_value | sort(attribute='port') | sort(attribute='node') }}"
+        applied_value: >-
+          {{
+            live_value
+            | map('combine', {'flowcontrol': 'none'})
+            | list
+            | sort(attribute='port')
+            | sort(attribute='node')
+          }}
+
+    - name: Record whether flow control still needs to change
+      ansible.builtin.set_fact:
+        changed_now: "{{ live_value != applied_value }}"
+        keep_original: >-
+          {{
+            (incoming_prior.changed | default(false) | bool)
+            and (
+              (live_value != applied_value)
+              or (
+                (incoming_prior.applied is defined)
+                and (live_value == incoming_prior.applied)
+              )
+            )
+          }}
 
     - name: Disable flow control on data ports
       netapp.ontap.na_ontap_rest_cli:
@@ -84,4 +206,24 @@
         msg: >-
           Flow control was changed only on the data ports listed for each node.
           Other ports are left as they are.
-      when: port_plan | default([]) | length > 0
+
+    - name: Keep the earlier flow-control values when this launch did not find a new change
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: true
+          previous: "{{ incoming_prior.previous }}"
+          applied: "{{ applied_value }}"
+      when: keep_original | bool
+
+    - name: Record the flow-control values from this launch
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: "{{ changed_now | bool }}"
+          previous: "{{ live_value }}"
+          applied: "{{ applied_value }}"
+      when: not (keep_original | bool)
+
+    - name: Export the recorded flow-control change
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ prior_export | to_json }}"

@@ -33,8 +33,63 @@
   vars:
     svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
     audit_log_volume_name_normalized: "{{ audit_log_volume_name | default('') | string | trim }}"
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
 
   tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Note that this deployment did not create the audit log
+      ansible.builtin.debug:
+        msg: This deployment did not create the audit log, so End leaves it unchanged.
+      when: >-
+        not (incoming_prior.changed | default(false) | bool)
+        or (incoming_prior.added | default([]) | length == 0)
+
+    - name: Stop when this deployment did not create the audit log
+      ansible.builtin.meta: end_play
+      when: >-
+        not (incoming_prior.changed | default(false) | bool)
+        or (incoming_prior.added | default([]) | length == 0)
+
+    - name: Use the audit objects this deployment created
+      ansible.builtin.set_fact:
+        svm_name_normalized: "{{ (incoming_prior.added | first).svm }}"
+        created_audit: >-
+          {{
+            incoming_prior.added
+            | selectattr('kind', 'equalto', 'audit')
+            | list
+            | length > 0
+          }}
+        created_volume_name: >-
+          {{
+            (
+              incoming_prior.added
+              | selectattr('kind', 'equalto', 'volume')
+              | map(attribute='name')
+              | list
+              | first
+            ) | default('')
+          }}
 
     - name: Note that the SVM name is blank
       ansible.builtin.debug:
@@ -112,6 +167,7 @@
         vserver: "{{ svm_name_normalized }}"
       register: audit_delete
       failed_when: false
+      when: (created_audit | bool) or (created_volume_name | length > 0)
 
     - name: Confirm SVM auditing was deleted
       ansible.builtin.assert:
@@ -121,15 +177,20 @@
           Deleting auditing on SVM {{ svm_name_normalized }} failed:
           {{ audit_delete.msg | default('') }}
         success_msg: "SVM {{ svm_name_normalized }} auditing delete accepted"
+      when: (created_audit | bool) or (created_volume_name | length > 0)
 
-    - name: Note that no audit log volume name was provided
+    - name: Use the audit log volume this deployment created
+      ansible.builtin.set_fact:
+        audit_log_volume_name_normalized: "{{ created_volume_name }}"
+
+    - name: Note that this deployment did not create the audit log volume
       ansible.builtin.debug:
-        msg: The audit log volume name is blank, so no volume was deleted.
-      when: audit_log_volume_name_normalized | length == 0
+        msg: This deployment did not create the audit log volume, so End leaves it unchanged.
+      when: created_volume_name | length == 0
 
-    - name: Stop when no audit log volume name was provided
+    - name: Stop when this deployment did not create the audit log volume
       ansible.builtin.meta: end_play
-      when: audit_log_volume_name_normalized | length == 0
+      when: created_volume_name | length == 0
 
     - name: Delete the audit log volume
       netapp.ontap.na_ontap_volume:

@@ -19,8 +19,29 @@
         | list
       }}
     ipv4_pattern: '^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$'
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
 
   tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
 
     - name: Validate the SVM name
       ansible.builtin.assert:
@@ -71,6 +92,84 @@
           SVM {{ svm_name_normalized }} DNS domain is {{ svm_dns_domain_normalized }}.
           Name servers: {{ svm_dns_server_list | join(', ') }}.
 
+    - name: Read SVM DNS
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - name-services/dns
+        parameters:
+          svm.name: "{{ svm_name_normalized }}"
+        fields:
+          - svm
+          - servers
+          - domains
+      register: dns_info
+
+    - name: Record SVM DNS
+      ansible.builtin.set_fact:
+        live_value:
+          svm: "{{ svm_name_normalized }}"
+          present: "{{ 'true' if ((dns_record.svm | default({})).name | default('') | string | length > 0) else 'false' }}"
+          servers: "{{ dns_servers_live | sort }}"
+          domains: "{{ dns_domains_live | sort }}"
+        applied_value:
+          svm: "{{ svm_name_normalized }}"
+          present: "true"
+          servers: "{{ svm_dns_server_list | sort }}"
+          domains:
+            - "{{ svm_dns_domain_normalized }}"
+      vars:
+        dns_records: "{{ (dns_info.ontap_info.name_services_dns | default({})).records | default([]) }}"
+        dns_record: >-
+          {{
+            (
+              dns_records
+              | selectattr('svm.name', 'defined')
+              | selectattr('svm.name', 'equalto', svm_name_normalized)
+              | list
+              | first
+            ) | default({})
+          }}
+        dns_servers_live: >-
+          {{
+            dns_record.servers
+            | default([])
+            | map('string')
+            | map('trim')
+            | reject('equalto', '')
+            | list
+          }}
+        dns_domains_live: >-
+          {{
+            dns_record.domains
+            | default([])
+            | map('string')
+            | map('trim')
+            | reject('equalto', '')
+            | list
+          }}
+
+    - name: Record whether SVM DNS still needs to change
+      ansible.builtin.set_fact:
+        changed_now: "{{ live_value != applied_value }}"
+        keep_original: >-
+          {{
+            (incoming_prior.changed | default(false) | bool)
+            and (
+              (live_value != applied_value)
+              or (
+                (incoming_prior.applied is defined)
+                and (live_value == incoming_prior.applied)
+              )
+            )
+          }}
+
     - name: Configure DNS for the SVM
       netapp.ontap.na_ontap_dns:
         state: present
@@ -83,3 +182,24 @@
         https: true
         validate_certs: false
         use_rest: always
+
+    - name: Keep the earlier SVM DNS configuration when this launch did not find a new change
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: true
+          previous: "{{ incoming_prior.previous }}"
+          applied: "{{ applied_value }}"
+      when: keep_original | bool
+
+    - name: Record the SVM DNS configuration from this launch
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: "{{ changed_now | bool }}"
+          previous: "{{ live_value }}"
+          applied: "{{ applied_value }}"
+      when: not (keep_original | bool)
+
+    - name: Export the recorded SVM DNS change
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ prior_export | to_json }}"

@@ -3,8 +3,30 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  vars:
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
 
   tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
 
     # The cluster default-management policy is cluster-scoped in the Default
     # IPspace. Read the public REST object because private CLI show output
@@ -69,6 +91,16 @@
             'management-http' in (default_management_policy.services | default([]))
             or 'management_http' in (default_management_policy.services | default([]))
           }}
+        live_value: >-
+          {{
+            'present'
+            if (
+              'management-http' in (default_management_policy.services | default([]))
+              or 'management_http' in (default_management_policy.services | default([]))
+            )
+            else 'absent'
+          }}
+        applied_value: absent
 
     - name: Validate the cluster name
       ansible.builtin.assert:
@@ -76,6 +108,21 @@
           - cluster_name | default('') | length > 0
         fail_msg: Provide cluster_name.
       when: http_management_enabled | bool
+
+    - name: Record whether HTTP management still needs to change
+      ansible.builtin.set_fact:
+        changed_now: "{{ live_value != applied_value }}"
+        keep_original: >-
+          {{
+            (incoming_prior.changed | default(false) | bool)
+            and (
+              (live_value != applied_value)
+              or (
+                (incoming_prior.applied is defined)
+                and (live_value == incoming_prior.applied)
+              )
+            )
+          }}
 
     - name: Remove HTTP from the default-management service policy
       netapp.ontap.na_ontap_rest_cli:
@@ -97,3 +144,24 @@
       ansible.builtin.debug:
         msg: HTTP cluster management is already disabled.
       when: not (http_management_enabled | bool)
+
+    - name: Keep the earlier HTTP setting when this launch did not find a new change
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: true
+          previous: "{{ incoming_prior.previous }}"
+          applied: "{{ applied_value }}"
+      when: keep_original | bool
+
+    - name: Record the HTTP setting from this launch
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: "{{ changed_now | bool }}"
+          previous: "{{ live_value }}"
+          applied: "{{ applied_value }}"
+      when: not (keep_original | bool)
+
+    - name: Export the recorded HTTP change
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ prior_export | to_json }}"

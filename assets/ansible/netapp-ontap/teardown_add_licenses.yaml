@@ -1,0 +1,140 @@
+---
+# Undo of add_licenses.yaml.
+# Removes only license serials this deployment added. A base license is left
+# in place because ONTAP does not remove it. Safe to run twice.
+- name: Remove ONTAP licenses added by this deployment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  module_defaults:
+    netapp.ontap.na_ontap_license:
+      hostname: "{{ ontap_hostname }}"
+      username: "{{ ontap_username }}"
+      password: "{{ ontap_password }}"
+      https: true
+      validate_certs: false
+      use_rest: always
+    netapp.ontap.na_ontap_rest_info:
+      hostname: "{{ ontap_hostname }}"
+      username: "{{ ontap_username }}"
+      password: "{{ ontap_password }}"
+      https: true
+      validate_certs: false
+      use_rest: always
+      use_python_keys: true
+  vars:
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
+
+  tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Note that this deployment did not add licenses
+      ansible.builtin.debug:
+        msg: This deployment did not add licenses, so End leaves them unchanged.
+      when: not (incoming_prior.changed | default(false) | bool) or (incoming_prior.added | default([]) | length == 0)
+
+    - name: Stop when no license was added
+      ansible.builtin.meta: end_play
+      when: not (incoming_prior.changed | default(false) | bool) or (incoming_prior.added | default([]) | length == 0)
+
+    - name: Read installed licenses
+      netapp.ontap.na_ontap_rest_info:
+        gather_subset:
+          - cluster/licensing/licenses
+        fields:
+          - name
+          - licenses.serial_number
+      register: licenses_now
+      no_log: true
+
+    - name: Record the installed license packages
+      ansible.builtin.set_fact:
+        license_packages_now: >-
+          {{
+            (licenses_now.ontap_info.cluster_licensing_licenses | default({})).records
+            | default([])
+          }}
+
+    - name: Collect license serials that are still installed
+      ansible.builtin.set_fact:
+        installed_now: "{{ installed_now | default([]) + [license_id] }}"
+      vars:
+        license_id:
+          name: "{{ item.0.name | default('') | string | trim }}"
+          serial: "{{ item.1.serial_number | default('') | string | trim }}"
+      loop: "{{ license_packages_now | subelements('licenses', skip_missing=True) }}"
+      when: item.1.serial_number | default('') | string | trim | length > 0
+      no_log: true
+
+    - name: Select licenses this deployment added that are still installed
+      ansible.builtin.set_fact:
+        licenses_to_delete: "{{ licenses_to_delete | default([]) + [item] }}"
+      loop: "{{ incoming_prior.added }}"
+      when:
+        - item in (installed_now | default([]))
+        - item.name | lower != 'base'
+      no_log: true
+
+    - name: Note that ONTAP does not remove a base license
+      ansible.builtin.debug:
+        msg: >-
+          This deployment added a base license. ONTAP does not remove that
+          package, so End leaves it in place.
+      when: >-
+        incoming_prior.added
+        | map(attribute='name')
+        | map('lower')
+        | select('equalto', 'base')
+        | list
+        | length > 0
+
+    - name: Note that the added licenses are already gone
+      ansible.builtin.debug:
+        msg: The licenses added by this deployment are already gone.
+      when: licenses_to_delete | default([]) | length == 0
+
+    - name: Stop when the added licenses are already gone
+      ansible.builtin.meta: end_play
+      when: licenses_to_delete | default([]) | length == 0
+
+    - name: Remove licenses added by this deployment
+      netapp.ontap.na_ontap_license:
+        state: absent
+        license_names:
+          - "{{ item.name }}"
+        serial_number: "{{ item.serial }}"
+      loop: "{{ licenses_to_delete }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: license_delete
+      failed_when: false
+
+    - name: Confirm the added licenses were removed
+      ansible.builtin.assert:
+        that:
+          - not (item.failed | default(false))
+        fail_msg: >-
+          Removing license {{ item.item.name }} serial {{ item.item.serial }} failed:
+          {{ item.msg | default('') }}
+      loop: "{{ license_delete.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"

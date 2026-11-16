@@ -3,6 +3,17 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  vars:
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
 
   tasks:
 
@@ -16,6 +27,58 @@
           - ntp_server_list | length > 0
         fail_msg: Provide ntp_servers as a comma-separated list of IP addresses.
 
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Read NTP servers
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - cluster/ntp/servers
+        fields:
+          - server
+      register: ntp_info
+
+    - name: Record NTP servers that this launch will add
+      ansible.builtin.set_fact:
+        existing_servers: >-
+          {{
+            (ntp_info.ontap_info.cluster_ntp_servers | default({})).records
+            | default([])
+            | map(attribute='server')
+            | map('string')
+            | map('trim')
+            | reject('equalto', '')
+            | list
+          }}
+        added_now: >-
+          {{
+            ntp_server_list
+            | reject('in', (
+                (ntp_info.ontap_info.cluster_ntp_servers | default({})).records
+                | default([])
+                | map(attribute='server')
+                | map('string')
+                | map('trim')
+                | list
+              ))
+            | list
+          }}
+
     - name: Configure NTP
       netapp.ontap.na_ontap_ntp:
         state: present
@@ -26,3 +89,24 @@
         https: true
         validate_certs: false
       loop: "{{ ntp_server_list }}"
+
+    - name: Keep NTP servers this deployment already added
+      ansible.builtin.set_fact:
+        added_servers: "{{ incoming_prior.added | default([]) }}"
+      when: incoming_prior.changed | default(false) | bool
+
+    - name: Start a new NTP server list when this deployment has not added one
+      ansible.builtin.set_fact:
+        added_servers: []
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Add NTP servers that were not already on the cluster
+      ansible.builtin.set_fact:
+        added_servers: "{{ added_servers + [item] }}"
+      loop: "{{ added_now }}"
+      when: item not in added_servers
+
+    - name: Export the NTP servers this deployment added
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ {'changed': (added_servers | length > 0), 'added': added_servers} | to_json }}"

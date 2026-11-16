@@ -1,0 +1,152 @@
+---
+# Undo of configure_dns.yaml.
+# Restores the previous cluster DNS configuration only when this grain changed
+# it and the cluster still has the servers and domain this deployment set.
+# Safe to run twice.
+- name: Restore ONTAP DNS
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  module_defaults:
+    netapp.ontap.na_ontap_dns:
+      hostname: "{{ ontap_hostname }}"
+      username: "{{ ontap_username }}"
+      password: "{{ ontap_password }}"
+      https: true
+      validate_certs: false
+      use_rest: always
+    netapp.ontap.na_ontap_rest_info:
+      hostname: "{{ ontap_hostname }}"
+      username: "{{ ontap_username }}"
+      password: "{{ ontap_password }}"
+      https: true
+      validate_certs: false
+      use_rest: always
+      use_python_keys: true
+  vars:
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
+
+  tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Note that this deployment did not change cluster DNS
+      ansible.builtin.debug:
+        msg: This deployment did not change cluster DNS, so End leaves it unchanged.
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Stop when DNS was not changed
+      ansible.builtin.meta: end_play
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Read the cluster name
+      netapp.ontap.na_ontap_rest_info:
+        gather_subset:
+          - cluster
+        fields:
+          - name
+      register: cluster_info
+
+    - name: Read cluster DNS
+      netapp.ontap.na_ontap_rest_info:
+        gather_subset:
+          - name-services/dns
+        fields:
+          - svm
+          - servers
+          - domains
+      register: dns_info
+
+    - name: Record cluster DNS
+      ansible.builtin.set_fact:
+        live_value:
+          present: "{{ 'true' if ((dns_record.svm | default({})).name | default('') | string | length > 0) else 'false' }}"
+          servers: "{{ dns_servers_live | sort }}"
+          domains: "{{ dns_domains_live | sort }}"
+      vars:
+        cluster_body: "{{ cluster_info.ontap_info.cluster | default({}) }}"
+        cluster_name_live: >-
+          {{
+            (
+              cluster_body
+              if (cluster_body.name | default('') | string | length > 0)
+              else ((cluster_body.records | default([{}])) | first | default({}))
+            ).name | default('') | string | trim
+          }}
+        dns_records: "{{ (dns_info.ontap_info.name_services_dns | default({})).records | default([]) }}"
+        dns_record: >-
+          {{
+            (
+              dns_records
+              | selectattr('svm.name', 'defined')
+              | selectattr('svm.name', 'equalto', cluster_name_live)
+              | list
+              | first
+            ) | default({})
+          }}
+        dns_servers_live: >-
+          {{
+            dns_record.servers
+            | default([])
+            | map('string')
+            | map('trim')
+            | reject('equalto', '')
+            | list
+          }}
+        dns_domains_live: >-
+          {{
+            dns_record.domains
+            | default([])
+            | map('string')
+            | map('trim')
+            | reject('equalto', '')
+            | list
+          }}
+
+    - name: Note that cluster DNS no longer matches this deployment
+      ansible.builtin.debug:
+        msg: Cluster DNS no longer matches this deployment, so End leaves it unchanged.
+      when: live_value != incoming_prior.applied
+
+    - name: Stop when DNS was changed after the launch
+      ansible.builtin.meta: end_play
+      when: live_value != incoming_prior.applied
+
+    - name: Delete cluster DNS
+      netapp.ontap.na_ontap_dns:
+        state: absent
+      when: (incoming_prior.previous.present | default('true') | string) == 'false'
+
+    - name: Restore the previous cluster DNS configuration
+      netapp.ontap.na_ontap_dns:
+        state: present
+        nameservers: "{{ incoming_prior.previous.servers }}"
+        domains: "{{ incoming_prior.previous.domains }}"
+      when: (incoming_prior.previous.present | default('true') | string) == 'true'
+
+    - name: Report the restored cluster DNS
+      ansible.builtin.debug:
+        msg: >-
+          {{
+            'Deleted cluster DNS.'
+            if ((incoming_prior.previous.present | default('true') | string) == 'false')
+            else 'Restored the previous cluster DNS configuration.'
+          }}

@@ -33,8 +33,29 @@
         | unique
         | list
       }}
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
 
   tasks:
+
+      - name: Read the change recorded by the last launch
+        ansible.builtin.set_fact:
+          incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+        when: prior_config_text is mapping or prior_config_text | length > 0
+
+      - name: Use an empty record when this grain has no earlier change
+        ansible.builtin.set_fact:
+          incoming_prior:
+            changed: false
+        when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
 
       - name: Skip iSCSI LIF configuration when ISCSI is not a selected protocol
         block:
@@ -46,6 +67,22 @@
                 {% else %}
                 iSCSI is not selected. Skipping iSCSI configuration.
                 {% endif %}
+
+          - name: Keep the earlier iSCSI LIF record when iSCSI is not selected
+            torque.collections.export_torque_outputs:
+              outputs:
+                prior_config: "{{ incoming_prior | to_json }}"
+            when:
+              - "'iscsi' not in protocol_list"
+              - incoming_prior.changed | default(false) | bool
+
+          - name: Record that no iSCSI LIF was changed
+            torque.collections.export_torque_outputs:
+              outputs:
+                prior_config: "{{ {'changed': false} | to_json }}"
+            when:
+              - "'iscsi' not in protocol_list"
+              - not (incoming_prior.changed | default(false) | bool)
 
           - name: Skip the play when iSCSI is not selected
             ansible.builtin.meta: end_play
@@ -94,6 +131,65 @@
             unique. Requested A names: {{ node_plan | map(attribute='iscsi_a_lif_name') | join(', ') }}.
             Requested B names: {{ node_plan | map(attribute='iscsi_b_lif_name') | join(', ') }}.
 
+      - name: Read SVM network interfaces
+        netapp.ontap.na_ontap_rest_info:
+          hostname: "{{ ontap_hostname }}"
+          username: "{{ ontap_username }}"
+          password: "{{ ontap_password }}"
+          https: true
+          validate_certs: false
+          use_rest: always
+          use_python_keys: true
+          gather_subset:
+            - network/ip/interfaces
+          parameters:
+            svm.name: "{{ svm_name }}"
+          fields:
+            - name
+        register: lif_info
+
+      - name: Record fabric A iSCSI LIFs that are not already present
+        ansible.builtin.set_fact:
+          added_now: "{{ added_now | default([]) + [row] }}"
+        vars:
+          row:
+            id: "{{ svm_name }}/{{ item.iscsi_a_lif_name }}"
+            svm: "{{ svm_name }}"
+            name: "{{ item.iscsi_a_lif_name }}"
+          existing_names: >-
+            {{
+              ((lif_info.ontap_info | default({})).network_ip_interfaces | default({})).records
+              | default([])
+              | map(attribute='name')
+              | map('string')
+              | list
+            }}
+        loop: "{{ node_plan }}"
+        when: item.iscsi_a_lif_name not in existing_names
+        loop_control:
+          label: "{{ item.iscsi_a_lif_name }}"
+
+      - name: Record fabric B iSCSI LIFs that are not already present
+        ansible.builtin.set_fact:
+          added_now: "{{ added_now | default([]) + [row] }}"
+        vars:
+          row:
+            id: "{{ svm_name }}/{{ item.iscsi_b_lif_name }}"
+            svm: "{{ svm_name }}"
+            name: "{{ item.iscsi_b_lif_name }}"
+          existing_names: >-
+            {{
+              ((lif_info.ontap_info | default({})).network_ip_interfaces | default({})).records
+              | default([])
+              | map(attribute='name')
+              | map('string')
+              | list
+            }}
+        loop: "{{ node_plan }}"
+        when: item.iscsi_b_lif_name not in existing_names
+        loop_control:
+          label: "{{ item.iscsi_b_lif_name }}"
+
       - name: Configure iSCSI A LIFs
         netapp.ontap.na_ontap_interface:
           state: present
@@ -137,3 +233,24 @@
         loop: "{{ node_plan }}"
         loop_control:
           label: "{{ item.iscsi_b_lif_name }} on {{ item.node_name }}"
+
+      - name: Keep iSCSI LIFs this deployment already created
+        ansible.builtin.set_fact:
+          added_objects: "{{ incoming_prior.added | default([]) }}"
+        when: incoming_prior.changed | default(false) | bool
+
+      - name: Start a new iSCSI LIF list when this deployment has not created one
+        ansible.builtin.set_fact:
+          added_objects: []
+        when: not (incoming_prior.changed | default(false) | bool)
+
+      - name: Add iSCSI LIFs that were not already on the cluster
+        ansible.builtin.set_fact:
+          added_objects: "{{ added_objects + [item] }}"
+        loop: "{{ added_now | default([]) }}"
+        when: item.id not in (added_objects | map(attribute='id') | list)
+
+      - name: Export the iSCSI LIFs this deployment created
+        torque.collections.export_torque_outputs:
+          outputs:
+            prior_config: "{{ {'changed': (added_objects | length > 0), 'added': added_objects} | to_json }}"

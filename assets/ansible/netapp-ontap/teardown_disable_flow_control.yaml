@@ -1,0 +1,129 @@
+---
+# Undo of disable_flow_control.yaml.
+# Restores flow control only on data ports where this grain set it to none
+# and it is still none. Safe to run twice.
+- name: Restore flow control on ONTAP data ports
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
+
+  tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Note that this deployment did not change flow control
+      ansible.builtin.debug:
+        msg: This deployment did not change flow control, so End leaves it unchanged.
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Stop when flow control was not changed
+      ansible.builtin.meta: end_play
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Select ports whose flow control this deployment changed
+      ansible.builtin.set_fact:
+        ports_to_restore: "{{ ports_to_restore | default([]) + [item] }}"
+      loop: "{{ incoming_prior.previous | default([]) }}"
+      when: (item.flowcontrol | string) != 'none'
+      loop_control:
+        label: "{{ item.node | default('node') }}/{{ item.port | default('port') }}"
+
+    - name: Note that flow control was already none
+      ansible.builtin.debug:
+        msg: Flow control was already none on these ports, so End leaves it unchanged.
+      when: ports_to_restore | default([]) | length == 0
+
+    - name: Stop when no port needs flow control restored
+      ansible.builtin.meta: end_play
+      when: ports_to_restore | default([]) | length == 0
+
+    - name: Read port flow control
+      netapp.ontap.na_ontap_rest_cli:
+        command: network/port
+        verb: GET
+        params:
+          fields: node,port,flowcontrol-admin
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      register: port_show
+
+    - name: Select ports that are still set to none
+      ansible.builtin.set_fact:
+        ports_still_none: "{{ ports_still_none | default([]) + [item] }}"
+      vars:
+        port_records: "{{ port_show.msg.records | default([]) }}"
+        matched_port: >-
+          {{
+            (
+              port_records
+              | selectattr('node', 'equalto', item.node)
+              | selectattr('port', 'equalto', item.port)
+              | list
+              | first
+            ) | default({})
+          }}
+        flow_value: >-
+          {{
+            matched_port.flowcontrol_admin
+            | default(matched_port['flowcontrol-admin'] | default(''))
+            | string
+            | trim
+            | lower
+          }}
+      loop: "{{ ports_to_restore }}"
+      when: flow_value == 'none'
+      loop_control:
+        label: "{{ item.node }}/{{ item.port }}"
+
+    - name: Note that those ports no longer have flow control set to none
+      ansible.builtin.debug:
+        msg: >-
+          Flow control is no longer none on the ports this deployment changed,
+          so End leaves it unchanged.
+      when: ports_still_none | default([]) | length == 0
+
+    - name: Stop when those ports no longer have flow control set to none
+      ansible.builtin.meta: end_play
+      when: ports_still_none | default([]) | length == 0
+
+    - name: Restore flow control
+      netapp.ontap.na_ontap_rest_cli:
+        command: "network/port/objects/{{ item.node }}/{{ item.port }}"
+        verb: PATCH
+        body:
+          flowcontrol-admin: "{{ item.flowcontrol }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      loop: "{{ ports_still_none }}"
+      loop_control:
+        label: "{{ item.node }}/{{ item.port }}"
+
+    - name: Report the restored ports
+      ansible.builtin.debug:
+        msg: "Restored flow control on {{ ports_still_none | length }} data port(s)."

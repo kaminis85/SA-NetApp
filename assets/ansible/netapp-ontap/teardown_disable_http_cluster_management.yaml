@@ -1,0 +1,167 @@
+---
+# Undo of disable_http_cluster_management.yaml.
+# Adds management-http back only when this grain removed it and it is still
+# absent. Safe to run twice.
+- name: Restore HTTP cluster management
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
+
+  tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Note that this deployment did not remove HTTP cluster management
+      ansible.builtin.debug:
+        msg: >-
+          This deployment did not remove HTTP cluster management, so End leaves
+          it unchanged.
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Stop when HTTP cluster management was not changed
+      ansible.builtin.meta: end_play
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Read the cluster name
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - cluster
+        fields:
+          - name
+      register: cluster_info
+
+    - name: Get the default-management service policy and its services
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - network/ip/service-policies
+        fields:
+          - name
+          - services
+          - scope
+          - ipspace.name
+        parameters:
+          name: default-management
+          scope: cluster
+          ipspace.name: Default
+      register: policy_show
+      no_log: true
+
+    - name: Record whether HTTP management is enabled
+      ansible.builtin.set_fact:
+        cluster_name_live: "{{ cluster_record.name | default('') | string | trim }}"
+        http_management_enabled: >-
+          {{
+            'management-http' in (default_management_policy.services | default([]))
+            or 'management_http' in (default_management_policy.services | default([]))
+          }}
+      vars:
+        cluster_body: "{{ cluster_info.ontap_info.cluster | default({}) }}"
+        cluster_record: >-
+          {{
+            cluster_body
+            if (cluster_body.name | default('') | string | length > 0)
+            else ((cluster_body.records | default([{}])) | first | default({}))
+          }}
+        default_management_policy: >-
+          {{
+            (
+              policy_show.ontap_info.network_ip_service_policies.records
+              | default([])
+              | selectattr('name', 'equalto', 'default-management')
+              | selectattr('scope', 'equalto', 'cluster')
+              | selectattr('ipspace.name', 'equalto', 'Default')
+              | list
+              | first
+            ) | default({})
+          }}
+
+    - name: Confirm the cluster and its management policy were read
+      ansible.builtin.assert:
+        that:
+          - cluster_name_live | length > 0
+          - default_management_policy.name | default('') == 'default-management'
+        fail_msg: The cluster did not return its name and the default-management service policy.
+      vars:
+        default_management_policy: >-
+          {{
+            (
+              policy_show.ontap_info.network_ip_service_policies.records
+              | default([])
+              | selectattr('name', 'equalto', 'default-management')
+              | selectattr('scope', 'equalto', 'cluster')
+              | selectattr('ipspace.name', 'equalto', 'Default')
+              | list
+              | first
+            ) | default({})
+          }}
+
+    - name: Note that HTTP cluster management is already enabled
+      ansible.builtin.debug:
+        msg: HTTP cluster management is already enabled, so End leaves it unchanged.
+      when: http_management_enabled | bool
+
+    - name: Stop when HTTP cluster management is already enabled
+      ansible.builtin.meta: end_play
+      when: http_management_enabled | bool
+
+    - name: Note that HTTP was already absent before this deployment
+      ansible.builtin.debug:
+        msg: HTTP cluster management was already absent, so End leaves it unchanged.
+      when: (incoming_prior.previous | string) != 'present'
+
+    - name: Stop when this deployment did not remove HTTP
+      ansible.builtin.meta: end_play
+      when: (incoming_prior.previous | string) != 'present'
+
+    - name: Add HTTP back to the default-management service policy
+      netapp.ontap.na_ontap_rest_cli:
+        command: network/interface/service-policy/add-service
+        verb: POST
+        params:
+          vserver: "{{ cluster_name_live }}"
+          policy: default-management
+          service: management-http
+          privilege_level: advanced
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+
+    - name: Report that HTTP cluster management was restored
+      ansible.builtin.debug:
+        msg: HTTP cluster management was restored.

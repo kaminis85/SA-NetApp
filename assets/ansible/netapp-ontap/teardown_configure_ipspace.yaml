@@ -1,5 +1,5 @@
 ---
-# Undo of configure_ipspace.yaml: delete the IPspace.
+# Undo of configure_ipspace.yaml: delete the IPspace this deployment created.
 # End runs on-destroy in reverse dependency order. SVM DNS, the default route,
 # LIFs, the export-policy rule, the audit log, load-sharing SnapMirror, the SVM,
 # VLAN interfaces, and broadcast domains are already gone, because those grains
@@ -27,51 +27,97 @@
       use_python_keys: true
   vars:
     ipspace_name_normalized: "{{ ipspace_name | default('') | string | trim }}"
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
 
   tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Note that this deployment did not create an IPspace
+      ansible.builtin.debug:
+        msg: This deployment did not create an IPspace, so End leaves it unchanged.
+      when: >-
+        not (incoming_prior.changed | default(false) | bool)
+        or (incoming_prior.added | default([]) | length == 0)
+
+    - name: Stop when this deployment did not create an IPspace
+      ansible.builtin.meta: end_play
+      when: >-
+        not (incoming_prior.changed | default(false) | bool)
+        or (incoming_prior.added | default([]) | length == 0)
 
     - name: Validate the IPspace name
       ansible.builtin.assert:
         that:
-          - ipspace_name_normalized | length > 0
-          - ipspace_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,63}$')
-          - ipspace_name_normalized | lower not in ['default', 'cluster']
+          - item.name | length > 0
+          - item.name is match('^[A-Za-z_][A-Za-z0-9_.-]{0,63}$')
+          - item.name | lower not in ['default', 'cluster']
         fail_msg: >-
           IPspace name must start with a letter or underscore and contain only
           letters, numbers, underscores, hyphens, and periods. Default and
           Cluster already exist and cannot be deleted here.
+      loop: "{{ incoming_prior.added }}"
+      loop_control:
+        label: "{{ item.name }}"
 
     - name: Delete the IPspace
       netapp.ontap.na_ontap_ipspace:
         state: absent
-        name: "{{ ipspace_name_normalized }}"
+        name: "{{ item.name }}"
+      loop: "{{ incoming_prior.added }}"
+      loop_control:
+        label: "{{ item.name }}"
       register: ipspace_delete
       failed_when: false
 
     - name: Confirm the IPspace was deleted (or already was)
       ansible.builtin.assert:
         that:
-          - not (ipspace_delete.failed | default(false))
+          - not (item.failed | default(false))
         fail_msg: >-
-          Deleting IPspace {{ ipspace_name_normalized }} failed:
-          {{ ipspace_delete.msg | default('') }}
-        success_msg: "IPspace {{ ipspace_name_normalized }} delete accepted"
+          Deleting IPspace {{ item.item.name }} failed:
+          {{ item.msg | default('') }}
+        success_msg: "IPspace {{ item.item.name }} delete accepted"
+      loop: "{{ ipspace_delete.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
 
     - name: Wait until the IPspace is gone
       netapp.ontap.na_ontap_rest_info:
         gather_subset:
           - network/ipspaces
         parameters:
-          name: "{{ ipspace_name_normalized }}"
+          name: "{{ item.name }}"
         fields:
           - name
+      loop: "{{ incoming_prior.added }}"
+      loop_control:
+        label: "{{ item.name }}"
       register: ipspace_check
       failed_when: false
       until: >-
         not (ipspace_check.failed | default(false)) and (
           ((ipspace_check.ontap_info | default({})).network_ipspaces | default({})).records
           | default([])
-          | selectattr('name', 'equalto', ipspace_name_normalized)
+          | selectattr('name', 'equalto', item.name)
           | list
           | length
         ) == 0
@@ -81,15 +127,18 @@
     - name: Confirm the IPspace is gone
       ansible.builtin.assert:
         that:
-          - not (ipspace_check.failed | default(false))
+          - not (item.failed | default(false))
           - (
-              ((ipspace_check.ontap_info | default({})).network_ipspaces | default({})).records
+              ((item.ontap_info | default({})).network_ipspaces | default({})).records
               | default([])
-              | selectattr('name', 'equalto', ipspace_name_normalized)
+              | selectattr('name', 'equalto', item.item.name)
               | list
               | length
             ) == 0
         fail_msg: >-
-          IPspace {{ ipspace_name_normalized }} is still present after the delete.
-          {{ ipspace_check.msg | default('') }}
-        success_msg: "IPspace {{ ipspace_name_normalized }} is gone"
+          IPspace {{ item.item.name }} is still present after the delete.
+          {{ item.msg | default('') }}
+        success_msg: "IPspace {{ item.item.name }} is gone"
+      loop: "{{ ipspace_check.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"

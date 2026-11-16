@@ -1,0 +1,145 @@
+---
+# Undo of ensure_cluster_ha.yaml.
+# Disables cluster HA only when this grain enabled it on a two-node cluster
+# and HA is still enabled. Safe to run twice.
+- name: Restore ONTAP cluster HA
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
+
+  tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Note that this deployment did not change cluster HA
+      ansible.builtin.debug:
+        msg: This deployment did not change cluster HA, so End leaves it unchanged.
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Stop when cluster HA was not changed
+      ansible.builtin.meta: end_play
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Discover ONTAP cluster nodes
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - cluster/nodes
+        fields:
+          - name
+      register: node_info
+      no_log: true
+
+    - name: Count the cluster nodes
+      ansible.builtin.set_fact:
+        node_count: >-
+          {{
+            node_info.ontap_info.cluster_nodes.records
+            | default([])
+            | length
+          }}
+
+    - name: Note that cluster HA is only restored on a two-node cluster
+      ansible.builtin.debug:
+        msg: >-
+          Cluster HA is only restored on a two-node cluster.
+          This cluster has {{ node_count }} nodes, so End leaves HA unchanged.
+      when: node_count | int != 2
+
+    - name: Stop unless this is a two-node cluster
+      ansible.builtin.meta: end_play
+      when: node_count | int != 2
+
+    - name: Read cluster HA
+      netapp.ontap.na_ontap_rest_cli:
+        command: cluster/ha
+        verb: GET
+        params:
+          fields: configured
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      register: ha_show
+
+    - name: Record cluster HA
+      ansible.builtin.set_fact:
+        live_value: "{{ 'true' if (ha_flag | bool) else 'false' }}"
+      vars:
+        ha_record: >-
+          {{
+            (ha_show.msg.records | default([ha_show.msg | default({})]))
+            | first
+            | default({})
+          }}
+        ha_flag: "{{ ha_record.configured | default('') }}"
+
+    - name: Confirm cluster HA was read
+      ansible.builtin.assert:
+        that:
+          - ha_flag | string | trim | lower in ['true', 'false']
+        fail_msg: >-
+          Could not read cluster HA. The cluster returned '{{ ha_flag | default('') }}'.
+      vars:
+        ha_record: >-
+          {{
+            (ha_show.msg.records | default([ha_show.msg | default({})]))
+            | first
+            | default({})
+          }}
+        ha_flag: "{{ ha_record.configured | default('') }}"
+
+    - name: Note that cluster HA no longer has the value this deployment set
+      ansible.builtin.debug:
+        msg: >-
+          Cluster HA is '{{ live_value }}', not '{{ incoming_prior.applied }}',
+          so End leaves it unchanged.
+      when: >-
+        live_value != (incoming_prior.applied | string)
+        or (incoming_prior.previous | string) != 'false'
+
+    - name: Stop when cluster HA should stay as it is
+      ansible.builtin.meta: end_play
+      when: >-
+        live_value != (incoming_prior.applied | string)
+        or (incoming_prior.previous | string) != 'false'
+
+    - name: Disable cluster HA
+      netapp.ontap.na_ontap_cluster_ha:
+        state: absent
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+
+    - name: Report that cluster HA was disabled
+      ansible.builtin.debug:
+        msg: Cluster HA was disabled.

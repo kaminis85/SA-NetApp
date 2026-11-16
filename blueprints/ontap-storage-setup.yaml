@@ -666,6 +666,21 @@ grains:
         - ontap_password: '{{ .inputs.ontap_password }}'
         - cluster_name: '{{ .inputs.cluster_name }}'
         - cluster_location: '{{ .inputs.cluster_location }}'
+        - prior_config: '{% if .grains.update_cluster_location.outputs.prior_config %}{{ .grains.update_cluster_location.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Restores the cluster location when this grain changed it.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_update_cluster_location.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.update_cluster_location.outputs.prior_config %}{{ .grains.update_cluster_location.outputs.prior_config }}{% endif %}'
 
   ensure_cluster_mgmt_auto_revert:
     kind: ansible
@@ -680,6 +695,21 @@ grains:
         - ontap_hostname: '{{ .inputs.ontap_hostname }}'
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
+        - prior_config: '{% if .grains.ensure_cluster_mgmt_auto_revert.outputs.prior_config %}{{ .grains.ensure_cluster_mgmt_auto_revert.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Restores cluster-management auto-revert when this grain changed it.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_ensure_cluster_mgmt_auto_revert.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.ensure_cluster_mgmt_auto_revert.outputs.prior_config %}{{ .grains.ensure_cluster_mgmt_auto_revert.outputs.prior_config }}{% endif %}'
 
   delete_default_broadcast_domains:
     kind: ansible
@@ -710,6 +740,21 @@ grains:
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
         - node_specs: '{{ .inputs.node_specs }}'
+        - prior_config: '{% if .grains.configure_sp_network.outputs.prior_config %}{{ .grains.configure_sp_network.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Restores the service-processor network when this grain changed it.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_configure_sp_network.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.configure_sp_network.outputs.prior_config %}{{ .grains.configure_sp_network.outputs.prior_config }}{% endif %}'
 
   discover_disk_class:
     kind: ansible
@@ -745,8 +790,10 @@ grains:
         - ontap_password: '{{ .inputs.ontap_password }}'
         - node_specs: '{{ .inputs.node_specs }}'
         - disk_class: '{{ .grains.discover_disk_class.outputs.disk_class }}'
+        - prior_config: '{% if .grains.create_data_aggregates.outputs.prior_config %}{{ .grains.create_data_aggregates.outputs.prior_config }}{% endif %}'
       outputs:
         - aggregate_status
+        - prior_config
       # Runs when the deployment is ended, after the SVM and its volumes are gone.
       on-destroy:
         source:
@@ -759,6 +806,7 @@ grains:
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
           - node_specs: '{{ .inputs.node_specs }}'
+          - prior_config: '{% if .grains.create_data_aggregates.outputs.prior_config %}{{ .grains.create_data_aggregates.outputs.prior_config }}{% endif %}'
 
   zero_spare_disks:
     kind: ansible
@@ -773,6 +821,21 @@ grains:
         - ontap_hostname: '{{ .inputs.ontap_hostname }}'
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
+        - prior_config: '{% if .grains.zero_spare_disks.outputs.prior_config %}{{ .grains.zero_spare_disks.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Reports spare-disk zeroing. That change cannot be reversed.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_zero_spare_disks.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.zero_spare_disks.outputs.prior_config %}{{ .grains.zero_spare_disks.outputs.prior_config }}{% endif %}'
 
   ensure_cluster_ha:
     kind: ansible
@@ -787,6 +850,21 @@ grains:
         - ontap_hostname: '{{ .inputs.ontap_hostname }}'
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
+        - prior_config: '{% if .grains.ensure_cluster_ha.outputs.prior_config %}{{ .grains.ensure_cluster_ha.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Restores cluster HA when this grain changed it.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_ensure_cluster_ha.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.ensure_cluster_ha.outputs.prior_config %}{{ .grains.ensure_cluster_ha.outputs.prior_config }}{% endif %}'
 
   disable_flow_control:
     kind: ansible
@@ -803,6 +881,21 @@ grains:
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
         - node_specs: '{{ .inputs.node_specs }}'
+        - prior_config: '{% if .grains.disable_flow_control.outputs.prior_config %}{{ .grains.disable_flow_control.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Restores flow control when this grain changed it.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_disable_flow_control.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.disable_flow_control.outputs.prior_config %}{{ .grains.disable_flow_control.outputs.prior_config }}{% endif %}'
 
   enable_cdp:
     kind: ansible
@@ -817,6 +910,21 @@ grains:
         - ontap_hostname: '{{ .inputs.ontap_hostname }}'
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
+        - prior_config: '{% if .grains.enable_cdp.outputs.prior_config %}{{ .grains.enable_cdp.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Restores CDP when this grain changed it.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_enable_cdp.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.enable_cdp.outputs.prior_config %}{{ .grains.enable_cdp.outputs.prior_config }}{% endif %}'
 
   enable_lldp:
     kind: ansible
@@ -831,6 +939,21 @@ grains:
         - ontap_hostname: '{{ .inputs.ontap_hostname }}'
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
+        - prior_config: '{% if .grains.enable_lldp.outputs.prior_config %}{{ .grains.enable_lldp.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Restores LLDP when this grain changed it.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_enable_lldp.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.enable_lldp.outputs.prior_config %}{{ .grains.enable_lldp.outputs.prior_config }}{% endif %}'
 
   configure_dns:
     kind: ansible
@@ -848,6 +971,21 @@ grains:
         - ontap_password: '{{ .inputs.ontap_password }}'
         - dns_servers: '{{ .inputs.dns_servers }}'
         - dns_domain_name: '{{ .inputs.dns_domain_name }}'
+        - prior_config: '{% if .grains.configure_dns.outputs.prior_config %}{{ .grains.configure_dns.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Restores cluster DNS when this grain changed it.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_configure_dns.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.configure_dns.outputs.prior_config %}{{ .grains.configure_dns.outputs.prior_config }}{% endif %}'
 
   configure_ntp:
     kind: ansible
@@ -864,6 +1002,21 @@ grains:
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
         - ntp_servers: '{{ .inputs.ntp_servers }}'
+        - prior_config: '{% if .grains.configure_ntp.outputs.prior_config %}{{ .grains.configure_ntp.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Removes NTP servers this grain added.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_configure_ntp.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.configure_ntp.outputs.prior_config %}{{ .grains.configure_ntp.outputs.prior_config }}{% endif %}'
 
   enable_storage_failover:
     kind: ansible
@@ -878,6 +1031,21 @@ grains:
         - ontap_hostname: '{{ .inputs.ontap_hostname }}'
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
+        - prior_config: '{% if .grains.enable_storage_failover.outputs.prior_config %}{{ .grains.enable_storage_failover.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Restores storage failover when this grain changed it.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_enable_storage_failover.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.enable_storage_failover.outputs.prior_config %}{{ .grains.enable_storage_failover.outputs.prior_config }}{% endif %}'
 
   set_timezone:
     kind: ansible
@@ -895,6 +1063,21 @@ grains:
         - ontap_password: '{{ .inputs.ontap_password }}'
         - cluster_name: '{{ .inputs.cluster_name }}'
         - time_zone: '{{ .inputs.time_zone }}'
+        - prior_config: '{% if .grains.set_timezone.outputs.prior_config %}{{ .grains.set_timezone.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Restores the timezone when this grain changed it.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_set_timezone.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.set_timezone.outputs.prior_config %}{{ .grains.set_timezone.outputs.prior_config }}{% endif %}'
 
 
   configure_autosupport:
@@ -915,6 +1098,21 @@ grains:
         - autosupport_from_address: '{{ .inputs.autosupport_from_address }}'
         - autosupport_to_addresses: '{{ .inputs.autosupport_to_addresses }}'
         - autosupport_proxy_url: '{{ .inputs.autosupport_proxy_url }}'
+        - prior_config: '{% if .grains.configure_autosupport.outputs.prior_config %}{{ .grains.configure_autosupport.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Restores AutoSupport when this grain changed it.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_configure_autosupport.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.configure_autosupport.outputs.prior_config %}{{ .grains.configure_autosupport.outputs.prior_config }}{% endif %}'
 
   add_licenses:
     kind: ansible
@@ -932,6 +1130,21 @@ grains:
         - ontap_password: '{{ .inputs.ontap_password }}'
         - legacy_license_keys: '{{ .inputs.legacy_license_keys }}'
         - nlf_license_content: '{{ .inputs.nlf_license_content }}'
+        - prior_config: '{% if .grains.add_licenses.outputs.prior_config %}{{ .grains.add_licenses.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Removes licenses this grain added.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_add_licenses.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.add_licenses.outputs.prior_config %}{{ .grains.add_licenses.outputs.prior_config }}{% endif %}'
 
   configure_fips:
     kind: ansible
@@ -947,6 +1160,21 @@ grains:
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
         - is_fips_enabled: '{{ .inputs.is_fips_enabled }}'
+        - prior_config: '{% if .grains.configure_fips.outputs.prior_config %}{{ .grains.configure_fips.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Restores SSL FIPS mode when this grain changed it.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_configure_fips.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.configure_fips.outputs.prior_config %}{{ .grains.configure_fips.outputs.prior_config }}{% endif %}'
 
   configure_snmp:
     kind: ansible
@@ -974,6 +1202,21 @@ grains:
         - snmp_priv_protocol: '{{ .inputs.snmp_priv_protocol }}'
         - snmp_priv_protocol_fips: '{{ .inputs.snmp_priv_protocol_fips }}'
         - snmp_priv_password: '{{ .inputs.snmp_priv_password }}'
+        - prior_config: '{% if .grains.configure_snmp.outputs.prior_config %}{{ .grains.configure_snmp.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Restores SNMP when this grain changed it.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_configure_snmp.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.configure_snmp.outputs.prior_config %}{{ .grains.configure_snmp.outputs.prior_config }}{% endif %}'
 
   create_login_banner:
     kind: ansible
@@ -990,6 +1233,21 @@ grains:
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
         - cluster_login_banner: '{{ .inputs.cluster_login_banner }}'
+        - prior_config: '{% if .grains.create_login_banner.outputs.prior_config %}{{ .grains.create_login_banner.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Restores the login banner when this grain changed it.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_create_login_banner.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.create_login_banner.outputs.prior_config %}{{ .grains.create_login_banner.outputs.prior_config }}{% endif %}'
 
   disable_http_cluster_management:
     kind: ansible
@@ -1006,6 +1264,21 @@ grains:
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
         - cluster_name: '{{ .inputs.cluster_name }}'
+        - prior_config: '{% if .grains.disable_http_cluster_management.outputs.prior_config %}{{ .grains.disable_http_cluster_management.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended. Restores HTTP cluster management when this grain removed it.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_disable_http_cluster_management.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - prior_config: '{% if .grains.disable_http_cluster_management.outputs.prior_config %}{{ .grains.disable_http_cluster_management.outputs.prior_config }}{% endif %}'
 
   configure_ifgrp:
     kind: ansible
@@ -1024,6 +1297,9 @@ grains:
         - node_specs: '{{ .inputs.node_specs }}'
         - ifgrp_name: '{{ .inputs.ifgrp_name }}'
         - ifgrp_mode: '{{ .inputs.ifgrp_mode }}'
+        - prior_config: '{% if .grains.configure_ifgrp.outputs.prior_config %}{{ .grains.configure_ifgrp.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
       # Runs when the deployment is ended, after the VLAN interfaces are gone.
       on-destroy:
         source:
@@ -1037,6 +1313,7 @@ grains:
           - ontap_password: '{{ .inputs.ontap_password }}'
           - node_specs: '{{ .inputs.node_specs }}'
           - ifgrp_name: '{{ .inputs.ifgrp_name }}'
+          - prior_config: '{% if .grains.configure_ifgrp.outputs.prior_config %}{{ .grains.configure_ifgrp.outputs.prior_config }}{% endif %}'
 
   configure_ipspace:
     kind: ansible
@@ -1053,6 +1330,9 @@ grains:
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
         - ipspace_name: '{{ .inputs.ipspace_name }}'
+        - prior_config: '{% if .grains.configure_ipspace.outputs.prior_config %}{{ .grains.configure_ipspace.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
       # Runs when the deployment is ended: deletes this IPspace.
       on-destroy:
         source:
@@ -1065,6 +1345,7 @@ grains:
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
           - ipspace_name: '{{ .inputs.ipspace_name }}'
+          - prior_config: '{% if .grains.configure_ipspace.outputs.prior_config %}{{ .grains.configure_ipspace.outputs.prior_config }}{% endif %}'
 
   configure_broadcast_domains:
     kind: ansible
@@ -1085,6 +1366,9 @@ grains:
         - nfs_vlan_name: '{{ .inputs.nfs_vlan_name }}'
         - iscsi_a_vlan_name: '{{ .inputs.iscsi_a_vlan_name }}'
         - iscsi_b_vlan_name: '{{ .inputs.iscsi_b_vlan_name }}'
+        - prior_config: '{% if .grains.configure_broadcast_domains.outputs.prior_config %}{{ .grains.configure_broadcast_domains.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
       # Runs when the deployment is ended, after the VLAN interfaces are gone.
       on-destroy:
         source:
@@ -1101,6 +1385,7 @@ grains:
           - nfs_vlan_name: '{{ .inputs.nfs_vlan_name }}'
           - iscsi_a_vlan_name: '{{ .inputs.iscsi_a_vlan_name }}'
           - iscsi_b_vlan_name: '{{ .inputs.iscsi_b_vlan_name }}'
+          - prior_config: '{% if .grains.configure_broadcast_domains.outputs.prior_config %}{{ .grains.configure_broadcast_domains.outputs.prior_config }}{% endif %}'
 
   configure_vlan_interfaces:
     kind: ansible
@@ -1127,6 +1412,9 @@ grains:
         - iscsi_a_vlan_id: '{{ .inputs.iscsi_a_vlan_id }}'
         - iscsi_b_vlan_name: '{{ .inputs.iscsi_b_vlan_name }}'
         - iscsi_b_vlan_id: '{{ .inputs.iscsi_b_vlan_id }}'
+        - prior_config: '{% if .grains.configure_vlan_interfaces.outputs.prior_config %}{{ .grains.configure_vlan_interfaces.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
       # Runs when the deployment is ended, after the LIFs are gone.
       on-destroy:
         source:
@@ -1148,6 +1436,7 @@ grains:
           - iscsi_a_vlan_id: '{{ .inputs.iscsi_a_vlan_id }}'
           - iscsi_b_vlan_name: '{{ .inputs.iscsi_b_vlan_name }}'
           - iscsi_b_vlan_id: '{{ .inputs.iscsi_b_vlan_id }}'
+          - prior_config: '{% if .grains.configure_vlan_interfaces.outputs.prior_config %}{{ .grains.configure_vlan_interfaces.outputs.prior_config }}{% endif %}'
 
   configure_ontap_svm:
     kind: ansible
@@ -1167,6 +1456,9 @@ grains:
         - ipspace_name: '{{ .inputs.ipspace_name }}'
         - svm_name: '{{ .inputs.svm_name }}'
         - allowed_protocols: '{{ .inputs.allowed_protocols }}'
+        - prior_config: '{% if .grains.configure_ontap_svm.outputs.prior_config %}{{ .grains.configure_ontap_svm.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
       # Runs when the deployment is ended, after LIFs, volumes, and SnapMirror are gone.
       on-destroy:
         source:
@@ -1180,6 +1472,7 @@ grains:
           - ontap_password: '{{ .inputs.ontap_password }}'
           - svm_name: '{{ .inputs.svm_name }}'
           - ipspace_name: '{{ .inputs.ipspace_name }}'
+          - prior_config: '{% if .grains.configure_ontap_svm.outputs.prior_config %}{{ .grains.configure_ontap_svm.outputs.prior_config }}{% endif %}'
 
   configure_svm_load_sharing_snapmirror:
     kind: ansible
@@ -1202,6 +1495,9 @@ grains:
         - svm_name: '{{ .inputs.svm_name }}'
         - job_name: '{{ .inputs.job_name }}'
         - job_minutes: '{{ .inputs.job_minutes }}'
+        - prior_config: '{% if .grains.configure_svm_load_sharing_snapmirror.outputs.prior_config %}{{ .grains.configure_svm_load_sharing_snapmirror.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
       # Runs when the deployment is ended, before the audit volume, the SVM, and the aggregates are deleted.
       on-destroy:
         source:
@@ -1215,6 +1511,7 @@ grains:
           - ontap_password: '{{ .inputs.ontap_password }}'
           - svm_name: '{{ .inputs.svm_name }}'
           - job_name: '{{ .inputs.job_name }}'
+          - prior_config: '{% if .grains.configure_svm_load_sharing_snapmirror.outputs.prior_config %}{{ .grains.configure_svm_load_sharing_snapmirror.outputs.prior_config }}{% endif %}'
 
   configure_svm_vsadmin:
     kind: ansible
@@ -1272,6 +1569,9 @@ grains:
         - svm_mgmt_lif_name: '{{ .inputs.svm_mgmt_lif_name }}'
         - svm_mgmt_lif_address: '{{ .inputs.svm_mgmt_lif_address }}'
         - svm_mgmt_lif_netmask: '{{ .inputs.svm_mgmt_lif_netmask }}'
+        - prior_config: '{% if .grains.configure_svm_mgmt_lif.outputs.prior_config %}{{ .grains.configure_svm_mgmt_lif.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
       # Runs when the deployment is ended, after the default route is gone.
       on-destroy:
         source:
@@ -1285,6 +1585,7 @@ grains:
           - ontap_password: '{{ .inputs.ontap_password }}'
           - svm_name: '{{ .inputs.svm_name }}'
           - svm_mgmt_lif_name: '{{ .inputs.svm_mgmt_lif_name }}'
+          - prior_config: '{% if .grains.configure_svm_mgmt_lif.outputs.prior_config %}{{ .grains.configure_svm_mgmt_lif.outputs.prior_config }}{% endif %}'
 
   configure_svm_default_route:
     kind: ansible
@@ -1303,6 +1604,9 @@ grains:
         - svm_name: '{{ .inputs.svm_name }}'
         - svm_mgmt_lif_address: '{{ .inputs.svm_mgmt_lif_address }}'
         - svm_mgmt_lif_gateway: '{{ .inputs.svm_mgmt_lif_gateway }}'
+        - prior_config: '{% if .grains.configure_svm_default_route.outputs.prior_config %}{{ .grains.configure_svm_default_route.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
       # Runs when the deployment is ended, after SVM DNS is gone.
       on-destroy:
         source:
@@ -1316,6 +1620,7 @@ grains:
           - ontap_password: '{{ .inputs.ontap_password }}'
           - svm_name: '{{ .inputs.svm_name }}'
           - svm_mgmt_lif_gateway: '{{ .inputs.svm_mgmt_lif_gateway }}'
+          - prior_config: '{% if .grains.configure_svm_default_route.outputs.prior_config %}{{ .grains.configure_svm_default_route.outputs.prior_config }}{% endif %}'
 
   configure_svm_dns:
     kind: ansible
@@ -1334,6 +1639,9 @@ grains:
         - svm_name: '{{ .inputs.svm_name }}'
         - svm_dns_servers: '{{ .inputs.svm_dns_servers }}'
         - svm_dns_domain: '{{ .inputs.svm_dns_domain }}'
+        - prior_config: '{% if .grains.configure_svm_dns.outputs.prior_config %}{{ .grains.configure_svm_dns.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
       # Runs when the deployment is ended, before the default route is deleted.
       on-destroy:
         source:
@@ -1346,6 +1654,7 @@ grains:
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
           - svm_name: '{{ .inputs.svm_name }}'
+          - prior_config: '{% if .grains.configure_svm_dns.outputs.prior_config %}{{ .grains.configure_svm_dns.outputs.prior_config }}{% endif %}'
 
   configure_nfs_export_policy:
     kind: ansible
@@ -1364,6 +1673,9 @@ grains:
         - svm_name: '{{ .inputs.svm_name }}'
         - allowed_protocols: '{{ .inputs.allowed_protocols }}'
         - nfs_client_match: '{{ .inputs.nfs_client_match }}'
+        - prior_config: '{% if .grains.configure_nfs_export_policy.outputs.prior_config %}{{ .grains.configure_nfs_export_policy.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
       # Runs when the deployment is ended, before the SVM is deleted.
       on-destroy:
         source:
@@ -1376,6 +1688,7 @@ grains:
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
           - svm_name: '{{ .inputs.svm_name }}'
+          - prior_config: '{% if .grains.configure_nfs_export_policy.outputs.prior_config %}{{ .grains.configure_nfs_export_policy.outputs.prior_config }}{% endif %}'
 
   configure_svm_audit_log:
     kind: ansible
@@ -1396,6 +1709,9 @@ grains:
         - audit_log_volume_name: '{{ .inputs.audit_log_volume_name }}'
         - audit_log_volume_size_gb: '{{ .inputs.audit_log_volume_size_gb }}'
         - audit_log_aggregate: '{{ .inputs.audit_log_aggregate }}'
+        - prior_config: '{% if .grains.configure_svm_audit_log.outputs.prior_config %}{{ .grains.configure_svm_audit_log.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
       # Runs when the deployment is ended, after load-sharing SnapMirror is gone and before the SVM and the aggregates are deleted.
       on-destroy:
         source:
@@ -1409,6 +1725,7 @@ grains:
           - ontap_password: '{{ .inputs.ontap_password }}'
           - svm_name: '{{ .inputs.svm_name }}'
           - audit_log_volume_name: '{{ .inputs.audit_log_volume_name }}'
+          - prior_config: '{% if .grains.configure_svm_audit_log.outputs.prior_config %}{{ .grains.configure_svm_audit_log.outputs.prior_config }}{% endif %}'
 
   configure_nfs_lif:
     kind: ansible
@@ -1429,6 +1746,9 @@ grains:
         - ifgrp_name: '{{ .inputs.ifgrp_name }}'
         - nfs_vlan_id: '{{ .inputs.nfs_vlan_id }}'
         - allowed_protocols: '{{ .inputs.allowed_protocols }}'
+        - prior_config: '{% if .grains.configure_nfs_lif.outputs.prior_config %}{{ .grains.configure_nfs_lif.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
       # Runs when the deployment is ended, before the SVM and the VLAN interfaces are deleted.
       on-destroy:
         source:
@@ -1443,6 +1763,7 @@ grains:
           - svm_name: '{{ .inputs.svm_name }}'
           - node_specs: '{{ .inputs.node_specs }}'
           - allowed_protocols: '{{ .inputs.allowed_protocols }}'
+          - prior_config: '{% if .grains.configure_nfs_lif.outputs.prior_config %}{{ .grains.configure_nfs_lif.outputs.prior_config }}{% endif %}'
 
   configure_iscsi_lif:
     kind: ansible
@@ -1464,6 +1785,9 @@ grains:
         - iscsi_a_vlan_id: '{{ .inputs.iscsi_a_vlan_id }}'
         - iscsi_b_vlan_id: '{{ .inputs.iscsi_b_vlan_id }}'
         - allowed_protocols: '{{ .inputs.allowed_protocols }}'
+        - prior_config: '{% if .grains.configure_iscsi_lif.outputs.prior_config %}{{ .grains.configure_iscsi_lif.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
       # Runs when the deployment is ended, before the SVM and the VLAN interfaces are deleted.
       on-destroy:
         source:
@@ -1478,6 +1802,7 @@ grains:
           - svm_name: '{{ .inputs.svm_name }}'
           - node_specs: '{{ .inputs.node_specs }}'
           - allowed_protocols: '{{ .inputs.allowed_protocols }}'
+          - prior_config: '{% if .grains.configure_iscsi_lif.outputs.prior_config %}{{ .grains.configure_iscsi_lif.outputs.prior_config }}{% endif %}'
 
   post_config_validation:
     kind: ansible

@@ -1,6 +1,6 @@
 ---
-# Undo of create_data_aggregates.yaml: delete the data aggregates named in
-# the node configuration rows. The SVM, its root volume, the audit log
+# Undo of create_data_aggregates.yaml: delete the data aggregates this
+# deployment created. The SVM, its root volume, the audit log
 # volume, and the load-sharing mirror volumes are already gone, because
 # those grains depend on this one. Node root aggregates (aggr0 / aggr0_*)
 # are never deleted. Safe to run twice.
@@ -31,44 +31,46 @@
       https: true
       validate_certs: false
   vars:
-    node_rows: >-
+    prior_config_text: >-
       {{
-        [] if (node_specs | default('[]') | string | trim) in ['', '[]']
-        else (node_specs | from_json if node_specs is string else node_specs)
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
       }}
 
   tasks:
 
-    - name: Normalize node rows
+    - name: Read the change recorded by the last launch
       ansible.builtin.set_fact:
-        node_plan: "{{ node_plan | default([]) + [normalized_row] }}"
-      vars:
-        normalized_row:
-          aggregate_name: "{{ item.aggregate_name | default(item['Aggregate Name'], true) | default('', true) | trim }}"
-      loop: "{{ node_rows }}"
-      loop_control:
-        label: "{{ item.aggregate_name | default(item['Aggregate Name'], true) | default('unnamed row', true) }}"
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
 
-    - name: Collect aggregate names
+    - name: Use an empty record when this grain has no earlier change
       ansible.builtin.set_fact:
-        aggregate_names: "{{ aggregate_names | default([]) + [item.aggregate_name] }}"
-      loop: "{{ node_plan | default([]) }}"
-      when: item.aggregate_name | length > 0
-      loop_control:
-        label: "{{ item.aggregate_name }}"
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
 
-    - name: Note that no aggregate was requested
+    - name: Note that this deployment did not create a data aggregate
       ansible.builtin.debug:
-        msg: No aggregate name was provided, so no aggregate was deleted.
-      when: aggregate_names | default([]) | unique | list | length == 0
+        msg: This deployment did not create a data aggregate, so End leaves them unchanged.
+      when: >-
+        not (incoming_prior.changed | default(false) | bool)
+        or (incoming_prior.added | default([]) | length == 0)
 
-    - name: Stop when no aggregate was requested
+    - name: Stop when this deployment did not create a data aggregate
       ansible.builtin.meta: end_play
-      when: aggregate_names | default([]) | unique | list | length == 0
+      when: >-
+        not (incoming_prior.changed | default(false) | bool)
+        or (incoming_prior.added | default([]) | length == 0)
 
-    - name: Keep the aggregate names once
+    - name: Use the aggregates this deployment created
       ansible.builtin.set_fact:
-        aggregate_names: "{{ aggregate_names | unique | list }}"
+        aggregate_names: "{{ incoming_prior.added | map(attribute='name') | list }}"
 
     - name: Refuse aggregate names that belong to a node root aggregate
       ansible.builtin.assert:

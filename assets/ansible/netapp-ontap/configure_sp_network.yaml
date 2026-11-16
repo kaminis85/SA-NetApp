@@ -10,8 +10,29 @@
         if node_specs is string
         else node_specs
       }}
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
 
   tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
 
     - name: Normalize node rows
       ansible.builtin.set_fact:
@@ -39,6 +60,26 @@
         msg: No service-processor values were provided, so this step made no change.
       when: sp_plan | default([]) | length == 0
 
+    - name: Keep the earlier service-processor change when this launch has no address
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ incoming_prior | to_json }}"
+      when:
+        - sp_plan | default([]) | length == 0
+        - incoming_prior.changed | default(false) | bool
+
+    - name: Record that the service processor was not changed
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ {'changed': false} | to_json }}"
+      when:
+        - sp_plan | default([]) | length == 0
+        - not (incoming_prior.changed | default(false) | bool)
+
+    - name: Stop when no service-processor address was provided
+      ansible.builtin.meta: end_play
+      when: sp_plan | default([]) | length == 0
+
     - name: Validate node names
       ansible.builtin.assert:
         that:
@@ -58,7 +99,6 @@
         fail_msg: >-
           Each node name can appear only once. Requested names:
           {{ sp_plan | map(attribute='node_name') | join(', ') }}.
-      when: sp_plan | default([]) | length > 0
 
     - name: Validate service-processor rows
       ansible.builtin.assert:
@@ -68,9 +108,89 @@
           - item.gateway | length > 0
         fail_msg: >-
           {{ item.node_name }} needs an SP IP, SP netmask, and SP gateway.
-      loop: "{{ sp_plan | default([]) }}"
+      loop: "{{ sp_plan }}"
       loop_control:
         label: "{{ item.node_name }}"
+
+    - name: Read the service-processor network
+      netapp.ontap.na_ontap_rest_cli:
+        command: system/service-processor/network
+        verb: GET
+        params:
+          node: "{{ item.node_name }}"
+          address-family: IPv4
+          fields: enable,dhcp,ip-address,netmask,gateway
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      loop: "{{ sp_plan | sort(attribute='node_name') }}"
+      loop_control:
+        label: "{{ item.node_name }}"
+      register: sp_show
+
+    - name: Record the service-processor network
+      ansible.builtin.set_fact:
+        live_value: "{{ (live_value | default([])) + [row] }}"
+        applied_value: "{{ (applied_value | default([])) + [desired] }}"
+      vars:
+        sp_record: >-
+          {{
+            (item.msg.records | default([item.msg | default({})]))
+            | first
+            | default({})
+          }}
+        enable_flag: >-
+          {{
+            sp_record.enable
+            | default('')
+            | string
+            | trim
+            | lower
+          }}
+        row:
+          node: "{{ item.item.node_name }}"
+          enable: "{{ enable_flag }}"
+          dhcp: "{{ sp_record.dhcp | default('') | string | trim | lower }}"
+          ip: "{{ sp_record.ip_address | default(sp_record['ip-address'] | default('')) | string | trim }}"
+          mask: "{{ sp_record.netmask | default('') | string | trim }}"
+          gateway: "{{ sp_record.gateway | default('') | string | trim }}"
+        desired:
+          node: "{{ item.item.node_name }}"
+          enable: "true"
+          dhcp: "none"
+          ip: "{{ item.item.ip }}"
+          mask: "{{ item.item.mask }}"
+          gateway: "{{ item.item.gateway }}"
+      loop: "{{ sp_show.results }}"
+      loop_control:
+        label: "{{ item.item.node_name }}"
+
+    - name: Confirm the service-processor network was read
+      ansible.builtin.assert:
+        that:
+          - item.enable in ['true', 'false']
+        fail_msg: >-
+          Could not read the service-processor network for {{ item.node }}.
+      loop: "{{ live_value }}"
+      loop_control:
+        label: "{{ item.node }}"
+
+    - name: Record whether the service processor still needs to change
+      ansible.builtin.set_fact:
+        changed_now: "{{ live_value != applied_value }}"
+        keep_original: >-
+          {{
+            (incoming_prior.changed | default(false) | bool)
+            and (
+              (live_value != applied_value)
+              or (
+                (incoming_prior.applied is defined)
+                and (live_value == incoming_prior.applied)
+              )
+            )
+          }}
 
     # na_ontap_service_processor_network omits the IPv4 enabled flag on REST.
     # ONTAP then returns error 13631591. The CLI sets that flag explicitly.
@@ -92,6 +212,27 @@
         password: "{{ ontap_password }}"
         https: true
         validate_certs: false
-      loop: "{{ sp_plan | default([]) }}"
+      loop: "{{ sp_plan }}"
       loop_control:
         label: "{{ item.node_name }}"
+
+    - name: Keep the earlier service-processor values when this launch did not find a new change
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: true
+          previous: "{{ incoming_prior.previous }}"
+          applied: "{{ applied_value }}"
+      when: keep_original | bool
+
+    - name: Record the service-processor values from this launch
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: "{{ changed_now | bool }}"
+          previous: "{{ live_value }}"
+          applied: "{{ applied_value }}"
+      when: not (keep_original | bool)
+
+    - name: Export the recorded service-processor change
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ prior_export | to_json }}"

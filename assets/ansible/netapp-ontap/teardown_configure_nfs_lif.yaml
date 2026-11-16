@@ -52,17 +52,56 @@
         | unique
         | list
       }}
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
 
   tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Note that this deployment did not create an NFS LIF
+      ansible.builtin.debug:
+        msg: This deployment did not create an NFS LIF, so End leaves them unchanged.
+      when: >-
+        not (incoming_prior.changed | default(false) | bool)
+        or (incoming_prior.added | default([]) | length == 0)
+
+    - name: Stop when this deployment did not create an NFS LIF
+      ansible.builtin.meta: end_play
+      when: >-
+        not (incoming_prior.changed | default(false) | bool)
+        or (incoming_prior.added | default([]) | length == 0)
+
+    - name: Use the NFS LIFs this deployment created
+      ansible.builtin.set_fact:
+        lif_names: "{{ incoming_prior.added | map(attribute='name') | list }}"
+        svm_name_normalized: "{{ (incoming_prior.added | first).svm }}"
 
     - name: Note that NFS LIFs were not requested
       ansible.builtin.debug:
         msg: NFS is not selected or the SVM name is blank, so no NFS LIF was deleted.
-      when: svm_name_normalized | length == 0 or 'nfs' not in protocol_list
+      when: svm_name_normalized | length == 0
 
     - name: Stop when NFS LIFs were not requested
       ansible.builtin.meta: end_play
-      when: svm_name_normalized | length == 0 or 'nfs' not in protocol_list
+      when: svm_name_normalized | length == 0
 
     - name: Validate the SVM name
       ansible.builtin.assert:
@@ -83,13 +122,9 @@
       loop_control:
         label: "{{ item.nfs_lif_name | default(item['NFS LIF Name'], true) | default('unnamed row', true) }}"
 
-    - name: Collect NFS LIF names
+    - name: Keep only NFS LIFs this deployment created
       ansible.builtin.set_fact:
-        lif_names: "{{ lif_names | default([]) + [item.nfs_lif_name] }}"
-      loop: "{{ node_plan | default([]) }}"
-      when: item.nfs_lif_name | length > 0
-      loop_control:
-        label: "{{ item.nfs_lif_name }}"
+        lif_names: "{{ incoming_prior.added | map(attribute='name') | list }}"
 
     - name: Note that no NFS LIF name was provided
       ansible.builtin.debug:

@@ -1,0 +1,114 @@
+---
+# Undo of update_cluster_location.yaml.
+# Restores the previous cluster name and location only for the fields this
+# grain changed that still match the launch. Safe to run twice.
+- name: Restore the ONTAP cluster location
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
+
+  tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Note that this deployment did not change the cluster location
+      ansible.builtin.debug:
+        msg: This deployment did not change the cluster location, so End leaves it unchanged.
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Stop when the location was not changed
+      ansible.builtin.meta: end_play
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Read the cluster
+      netapp.ontap.na_ontap_rest_info:
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+        use_python_keys: true
+        gather_subset:
+          - cluster
+        fields:
+          - name
+          - location
+      register: cluster_info
+
+    - name: Record the cluster name and location
+      ansible.builtin.set_fact:
+        live_value:
+          name: "{{ cluster_record.name | default('') | string | trim }}"
+          location: "{{ cluster_record.location | default('') | string | trim }}"
+      vars:
+        cluster_body: "{{ cluster_info.ontap_info.cluster | default({}) }}"
+        cluster_record: >-
+          {{
+            cluster_body
+            if (cluster_body.name | default('') | string | length > 0)
+            else ((cluster_body.records | default([{}])) | first | default({}))
+          }}
+
+    - name: Record which location fields still match this deployment
+      ansible.builtin.set_fact:
+        restore_name: >-
+          {{
+            (live_value.name == (incoming_prior.applied.name | default('') | string))
+            and ((incoming_prior.previous.name | default('') | string) != (incoming_prior.applied.name | default('') | string))
+            and ((incoming_prior.previous.name | default('') | string) | length > 0)
+          }}
+        restore_location: >-
+          {{
+            (live_value.location == (incoming_prior.applied.location | default('') | string))
+            and ((incoming_prior.previous.location | default('') | string) != (incoming_prior.applied.location | default('') | string))
+          }}
+
+    - name: Note that the cluster name and location no longer match this deployment
+      ansible.builtin.debug:
+        msg: >-
+          The cluster name and location no longer match the values this
+          deployment set, so End leaves them unchanged.
+      when: not (restore_name | bool) and not (restore_location | bool)
+
+    - name: Stop when nothing from this deployment is still in place
+      ansible.builtin.meta: end_play
+      when: not (restore_name | bool) and not (restore_location | bool)
+
+    - name: Restore the cluster name and location
+      netapp.ontap.na_ontap_cluster:
+        state: present
+        cluster_name: "{{ incoming_prior.previous.name if (restore_name | bool) else live_value.name }}"
+        cluster_location: "{{ incoming_prior.previous.location if (restore_location | bool) else omit }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+
+    - name: Report the restored cluster location
+      ansible.builtin.debug:
+        msg: >-
+          Restored the cluster
+          {{ ('name to ' ~ incoming_prior.previous.name) if (restore_name | bool) else 'name unchanged' }},
+          {{ ('location to ' ~ (incoming_prior.previous.location if (incoming_prior.previous.location | default('') | length > 0) else 'blank')) if (restore_location | bool) else 'location unchanged' }}.
