@@ -1546,6 +1546,23 @@ grains:
         - ontap_password: '{{ .inputs.ontap_password }}'
         - svm_name: '{{ .inputs.svm_name }}'
         - svm_login_banner: '{{ .inputs.svm_login_banner }}'
+        - prior_config: '{% if .grains.configure_svm_login_banner.outputs.prior_config %}{{ .grains.configure_svm_login_banner.outputs.prior_config }}{% endif %}'
+      outputs:
+        - prior_config
+      # Runs when the deployment is ended, before the SVM is deleted.
+      # Restores the SVM login banner when this grain changed it and the SVM stays.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_configure_svm_login_banner.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - svm_name: '{{ .inputs.svm_name }}'
+          - prior_config: '{% if .grains.configure_svm_login_banner.outputs.prior_config %}{{ .grains.configure_svm_login_banner.outputs.prior_config }}{% endif %}'
 
   configure_svm_mgmt_lif:
     kind: ansible

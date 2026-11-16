@@ -1,5 +1,6 @@
 # The SVM login banner is checked with this task.
 # Leave it blank and this task stays skipped.
+# Records the previous banner so End can restore it when the SVM stays.
 - name: Create the SVM login banner
   hosts: localhost
   connection: local
@@ -7,6 +8,16 @@
   vars:
     svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
     svm_login_banner_normalized: "{{ svm_login_banner | default('') | string | trim }}"
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
 
   tasks:
 
@@ -25,6 +36,88 @@
           - svm_login_banner_normalized | length > 0
         fail_msg: Provide svm_login_banner.
 
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Read the SVM login banner
+      netapp.ontap.na_ontap_rest_cli:
+        command: security/login/banner
+        verb: GET
+        params:
+          vserver: "{{ svm_name_normalized }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      register: banner_show
+
+    - name: Collect the SVM login banner records
+      ansible.builtin.set_fact:
+        banner_records: "{{ banner_show.msg.records | default([banner_show.msg | default({})]) }}"
+
+    - name: Select the banner for this SVM
+      ansible.builtin.set_fact:
+        matched_banner: >-
+          {{
+            (
+              banner_records
+              | selectattr('vserver', 'defined')
+              | selectattr('vserver', 'equalto', svm_name_normalized)
+              | list
+              | first
+            ) | default({})
+          }}
+
+    - name: Use the only banner record when it has no vserver field
+      ansible.builtin.set_fact:
+        matched_banner: "{{ banner_records | first | default({}) }}"
+      when:
+        - (matched_banner | default({}) | length) == 0
+        - banner_records | length == 1
+
+    - name: Confirm the SVM login banner can be identified
+      ansible.builtin.assert:
+        that:
+          - (matched_banner | default({}) | length) > 0 or (banner_records | length) == 0
+        fail_msg: Could not identify the login banner for SVM {{ svm_name_normalized }}.
+
+    - name: Record the SVM login banner
+      ansible.builtin.set_fact:
+        live_value: "{{ '' if banner_message in ['-', 'None', 'null'] else banner_message }}"
+        applied_value: "{{ svm_login_banner_normalized }}"
+      vars:
+        banner_message: >-
+          {{
+            (
+              matched_banner.message
+              | default(matched_banner.banner | default(''))
+            ) | string | trim
+          }}
+
+    - name: Record whether the banner still needs to change
+      ansible.builtin.set_fact:
+        changed_now: "{{ live_value != applied_value }}"
+        keep_original: >-
+          {{
+            (incoming_prior.changed | default(false) | bool)
+            and (
+              (live_value != applied_value)
+              or (
+                (incoming_prior.applied is defined)
+                and (live_value == incoming_prior.applied)
+              )
+            )
+          }}
+
     - name: Create the SVM login banner
       netapp.ontap.na_ontap_login_messages:
         vserver: "{{ svm_name_normalized }}"
@@ -35,3 +128,26 @@
         https: true
         validate_certs: false
         use_rest: always
+
+    - name: Keep the earlier banner when this launch did not find a new change
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: true
+          previous: "{{ incoming_prior.previous }}"
+          applied: "{{ applied_value }}"
+          svm: "{{ incoming_prior.svm | default(svm_name_normalized) }}"
+      when: keep_original | bool
+
+    - name: Record the banner from this launch
+      ansible.builtin.set_fact:
+        prior_export:
+          changed: "{{ changed_now | bool }}"
+          previous: "{{ live_value }}"
+          applied: "{{ applied_value }}"
+          svm: "{{ svm_name_normalized }}"
+      when: not (keep_original | bool)
+
+    - name: Export the recorded banner change
+      torque.collections.export_torque_outputs:
+        outputs:
+          prior_config: "{{ prior_export | to_json }}"

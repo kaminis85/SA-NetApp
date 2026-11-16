@@ -1,0 +1,201 @@
+---
+# Undo of configure_svm_login_banner.yaml.
+# Restores the previous SVM login banner only when this grain changed it,
+# the SVM is still present, and that SVM still has the banner this deployment
+# set. An empty previous message clears the banner. Safe to run twice.
+- name: Restore the SVM login banner
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  module_defaults:
+    netapp.ontap.na_ontap_rest_info:
+      hostname: "{{ ontap_hostname }}"
+      username: "{{ ontap_username }}"
+      password: "{{ ontap_password }}"
+      https: true
+      validate_certs: false
+      use_rest: always
+      use_python_keys: true
+  vars:
+    svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
+    prior_config_text: >-
+      {{
+        ''
+        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
+        else (
+          prior_config
+          if prior_config is mapping
+          else (prior_config | string | trim)
+        )
+      }}
+
+  tasks:
+
+    - name: Read the change recorded by the last launch
+      ansible.builtin.set_fact:
+        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
+      when: prior_config_text is mapping or prior_config_text | length > 0
+
+    - name: Use an empty record when this grain has no earlier change
+      ansible.builtin.set_fact:
+        incoming_prior:
+          changed: false
+      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
+
+    - name: Note that this deployment did not change the SVM login banner
+      ansible.builtin.debug:
+        msg: This deployment did not change the SVM login banner, so End leaves it unchanged.
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Stop when the banner was not changed
+      ansible.builtin.meta: end_play
+      when: not (incoming_prior.changed | default(false) | bool)
+
+    - name: Use the SVM whose banner this deployment changed
+      ansible.builtin.set_fact:
+        svm_name_normalized: "{{ incoming_prior.svm | default(svm_name_normalized) | string | trim }}"
+
+    - name: Note that the SVM name is blank
+      ansible.builtin.debug:
+        msg: The SVM name is blank, so the SVM login banner was not restored.
+      when: svm_name_normalized | length == 0
+
+    - name: Stop when the SVM name is blank
+      ansible.builtin.meta: end_play
+      when: svm_name_normalized | length == 0
+
+    - name: Validate the SVM name
+      ansible.builtin.assert:
+        that:
+          - svm_name_normalized is match('^[A-Za-z_][A-Za-z0-9_.-]{0,40}$')
+        fail_msg: >-
+          SVM name must start with a letter or underscore, contain only
+          letters, numbers, underscores, hyphens, and periods, and be at most
+          41 characters.
+
+    - name: Read the SVM
+      netapp.ontap.na_ontap_rest_info:
+        gather_subset:
+          - svm/svms
+        parameters:
+          name: "{{ svm_name_normalized }}"
+        fields:
+          - name
+      register: svm_lookup
+      failed_when: false
+
+    - name: Confirm the SVM lookup succeeded
+      ansible.builtin.assert:
+        that:
+          - not (svm_lookup.failed | default(false))
+        fail_msg: >-
+          Could not read SVM {{ svm_name_normalized }}:
+          {{ svm_lookup.msg | default('') }}
+
+    - name: Record whether the SVM is present
+      ansible.builtin.set_fact:
+        svm_is_present: >-
+          {{
+            (
+              ((svm_lookup.ontap_info | default({})).svm_svms | default({})).records
+              | default([])
+              | selectattr('name', 'equalto', svm_name_normalized)
+              | list
+              | length
+            ) > 0
+          }}
+
+    - name: Note that the SVM is already gone
+      ansible.builtin.debug:
+        msg: >-
+          SVM {{ svm_name_normalized }} is already gone, so its login banner
+          is already gone.
+      when: not (svm_is_present | bool)
+
+    - name: Stop when the SVM is already gone
+      ansible.builtin.meta: end_play
+      when: not (svm_is_present | bool)
+
+    - name: Read the SVM login banner
+      netapp.ontap.na_ontap_rest_cli:
+        command: security/login/banner
+        verb: GET
+        params:
+          vserver: "{{ svm_name_normalized }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+      register: banner_show
+
+    - name: Collect the SVM login banner records
+      ansible.builtin.set_fact:
+        banner_records: "{{ banner_show.msg.records | default([banner_show.msg | default({})]) }}"
+
+    - name: Select the banner for this SVM
+      ansible.builtin.set_fact:
+        matched_banner: >-
+          {{
+            (
+              banner_records
+              | selectattr('vserver', 'defined')
+              | selectattr('vserver', 'equalto', svm_name_normalized)
+              | list
+              | first
+            ) | default({})
+          }}
+
+    - name: Use the only banner record when it has no vserver field
+      ansible.builtin.set_fact:
+        matched_banner: "{{ banner_records | first | default({}) }}"
+      when:
+        - (matched_banner | default({}) | length) == 0
+        - banner_records | length == 1
+
+    - name: Confirm the SVM login banner can be identified
+      ansible.builtin.assert:
+        that:
+          - (matched_banner | default({}) | length) > 0 or (banner_records | length) == 0
+        fail_msg: Could not identify the login banner for SVM {{ svm_name_normalized }}.
+
+    - name: Record the SVM login banner
+      ansible.builtin.set_fact:
+        live_value: "{{ '' if banner_message in ['-', 'None', 'null'] else banner_message }}"
+      vars:
+        banner_message: >-
+          {{
+            (
+              matched_banner.message
+              | default(matched_banner.banner | default(''))
+            ) | string | trim
+          }}
+
+    - name: Note that the banner no longer matches this deployment
+      ansible.builtin.debug:
+        msg: The SVM login banner no longer matches this deployment, so End leaves it unchanged.
+      when: live_value != (incoming_prior.applied | default('') | string | trim)
+
+    - name: Stop when the banner was changed after the launch
+      ansible.builtin.meta: end_play
+      when: live_value != (incoming_prior.applied | default('') | string | trim)
+
+    - name: Restore the SVM login banner
+      netapp.ontap.na_ontap_login_messages:
+        vserver: "{{ svm_name_normalized }}"
+        banner: "{{ incoming_prior.previous | default('') }}"
+        hostname: "{{ ontap_hostname }}"
+        username: "{{ ontap_username }}"
+        password: "{{ ontap_password }}"
+        https: true
+        validate_certs: false
+        use_rest: always
+
+    - name: Report the restored SVM login banner
+      ansible.builtin.debug:
+        msg: >-
+          {{
+            'Cleared the SVM login banner.'
+            if (incoming_prior.previous | default('') | string | length == 0)
+            else 'Restored the previous SVM login banner.'
+          }}
