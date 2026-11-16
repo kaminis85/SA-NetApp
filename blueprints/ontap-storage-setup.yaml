@@ -1028,6 +1028,18 @@ grains:
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
         - ipspace_name: '{{ .inputs.ipspace_name }}'
+      # Runs when the deployment is ended: deletes this IPspace.
+      on-destroy:
+        source:
+          store: SA-NetApp
+          path: assets/ansible/netapp-ontap/teardown_configure_ipspace.yaml
+        agent:
+          name: '{{ .inputs.agent }}'
+        inputs:
+          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
+          - ontap_username: '{{ .inputs.ontap_username }}'
+          - ontap_password: '{{ .inputs.ontap_password }}'
+          - ipspace_name: '{{ .inputs.ipspace_name }}'
 
   configure_broadcast_domains:
     kind: ansible
