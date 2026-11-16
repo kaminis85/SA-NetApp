@@ -72,8 +72,8 @@
         command: network/interface
         verb: GET
         params:
-          interface-name: "{{ item }}"
-          fields: interface-name,is-auto-revert
+          lif: "{{ item }}"
+          fields: lif,auto-revert
         hostname: "{{ ontap_hostname }}"
         username: "{{ ontap_username }}"
         password: "{{ ontap_password }}"
@@ -96,8 +96,8 @@
           }}
         revert_flag: >-
           {{
-            revert_record.is_auto_revert
-            | default(revert_record['is-auto-revert'] | default(''))
+            revert_record.auto_revert
+            | default(revert_record['auto-revert'] | default(revert_record.is_auto_revert | default('')))
             | string
             | trim
             | lower
