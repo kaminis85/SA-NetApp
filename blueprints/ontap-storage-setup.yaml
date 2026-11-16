@@ -8,7 +8,7 @@ description: >-
 
 instructions:
   source:
-    store: Stack-Automation-NetApp
+    store: SA-NetApp
     path: instructions/ontap-storage-setup.md
 
 metadata:
@@ -641,7 +641,7 @@ grains:
     when: '{% if .inputs.ontap_hostname != "" and .inputs.ontap_username != "" and .inputs.ontap_password != "" %}true{% else %}false{% endif %}'
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/pre_validation.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -656,7 +656,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/update_cluster_location.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -672,7 +672,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/ensure_cluster_mgmt_auto_revert.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -686,7 +686,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/delete_default_broadcast_domains.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -701,7 +701,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_sp_network.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -717,7 +717,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/discover_disk_class.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -735,7 +735,7 @@ grains:
     depends-on: discover_disk_class
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/create_data_aggregates.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -753,7 +753,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/zero_spare_disks.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -767,7 +767,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/ensure_cluster_ha.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -782,7 +782,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/disable_flow_control.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -797,7 +797,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/enable_cdp.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -811,7 +811,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/enable_lldp.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -826,7 +826,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_dns.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -843,7 +843,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_ntp.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -858,7 +858,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/enable_storage_failover.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -873,7 +873,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/set_timezone.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -891,7 +891,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_autosupport.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -910,7 +910,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/add_licenses.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -926,7 +926,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_fips.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -942,7 +942,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_snmp.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -969,7 +969,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/create_login_banner.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -985,7 +985,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/disable_http_cluster_management.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1001,7 +1001,7 @@ grains:
     depends-on: delete_default_broadcast_domains
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_ifgrp.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1019,7 +1019,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_ipspace.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1035,7 +1035,7 @@ grains:
     depends-on: configure_ipspace
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_broadcast_domains.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1055,7 +1055,7 @@ grains:
     depends-on: configure_broadcast_domains, configure_ifgrp
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_vlan_interfaces.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1081,7 +1081,7 @@ grains:
     depends-on: create_data_aggregates, configure_ipspace, add_licenses
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_ontap_svm.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1100,7 +1100,7 @@ grains:
     depends-on: configure_ontap_svm
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_svm_load_sharing_snapmirror.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1119,7 +1119,7 @@ grains:
     depends-on: configure_ontap_svm
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_svm_vsadmin.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1136,7 +1136,7 @@ grains:
     depends-on: configure_ontap_svm
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_svm_login_banner.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1153,7 +1153,7 @@ grains:
     depends-on: configure_ontap_svm, configure_vlan_interfaces
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_svm_mgmt_lif.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1176,7 +1176,7 @@ grains:
     depends-on: configure_svm_mgmt_lif
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_svm_default_route.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1194,7 +1194,7 @@ grains:
     depends-on: configure_svm_default_route
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_svm_dns.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1212,7 +1212,7 @@ grains:
     depends-on: configure_ontap_svm
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_nfs_export_policy.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1230,7 +1230,7 @@ grains:
     depends-on: configure_ontap_svm
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_svm_audit_log.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1250,7 +1250,7 @@ grains:
     depends-on: configure_ontap_svm, configure_vlan_interfaces
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_nfs_lif.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1270,7 +1270,7 @@ grains:
     depends-on: configure_ontap_svm, configure_vlan_interfaces
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/configure_iscsi_lif.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1291,7 +1291,7 @@ grains:
     depends-on: pre_validation, update_cluster_location, ensure_cluster_mgmt_auto_revert, configure_sp_network, zero_spare_disks, ensure_cluster_ha, disable_flow_control, enable_cdp, enable_lldp, configure_dns, configure_ntp, enable_storage_failover, set_timezone, configure_autosupport, configure_fips, configure_snmp, create_login_banner, disable_http_cluster_management, configure_svm_load_sharing_snapmirror, configure_svm_vsadmin, configure_svm_login_banner, configure_svm_dns, configure_nfs_export_policy, configure_svm_audit_log, configure_nfs_lif, configure_iscsi_lif
     spec:
       source:
-        store: Stack-Automation-NetApp
+        store: SA-NetApp
         path: assets/ansible/netapp-ontap/post_config_validation.yaml
       agent:
         name: '{{ .inputs.agent }}'
