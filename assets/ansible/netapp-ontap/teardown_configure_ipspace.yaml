@@ -1,8 +1,10 @@
 ---
-# Undo of configure_ipspace.yaml: delete the IPspace. Broadcast domains and data
-# SVMs in this IPspace have to be gone first (their teardowns run before this one,
-# because those grains depend on configure_ipspace). Safe to run twice (an
-# IPspace that is already gone is not an error).
+# Undo of configure_ipspace.yaml: delete the IPspace.
+# End runs on-destroy in reverse dependency order. SVM DNS, the default route,
+# LIFs, the export-policy rule, the audit log, load-sharing SnapMirror, the SVM,
+# VLAN interfaces, and broadcast domains are already gone, because those grains
+# depend on configure_ipspace or on a grain that does. ONTAP removes the empty
+# Default broadcast domain with the IPspace. Safe to run twice.
 - name: Delete the ONTAP IPspace
   hosts: localhost
   connection: local
