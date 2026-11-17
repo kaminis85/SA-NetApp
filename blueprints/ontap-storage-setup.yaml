@@ -1330,7 +1330,7 @@ grains:
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
         - ipspace_name: '{{ .inputs.ipspace_name }}'
-        - prior_config: '{{ .grains.configure_ipspace.outputs.prior_config }}'
+        - prior_config: '{% if .grains.configure_ipspace.outputs.prior_config %}{{ .grains.configure_ipspace.outputs.prior_config }}{% endif %}'
       outputs:
         - prior_config
       # Runs when the deployment is ended: deletes this IPspace.
@@ -1345,7 +1345,7 @@ grains:
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
           - ipspace_name: '{{ .inputs.ipspace_name }}'
-          - prior_config: '{{ .grains.configure_ipspace.outputs.prior_config }}'
+          - prior_config: '{% if .grains.configure_ipspace.outputs.prior_config %}{{ .grains.configure_ipspace.outputs.prior_config }}{% endif %}'
 
   configure_broadcast_domains:
     kind: ansible
