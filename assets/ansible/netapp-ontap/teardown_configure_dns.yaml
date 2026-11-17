@@ -50,8 +50,10 @@
       netapp.ontap.na_ontap_rest_info:
         gather_subset:
           - name-services/dns
+        # Specify 'scope' as 'cluster' to retrieve the DNS configuration of the cluster.
+        parameters:
+          scope: cluster
         fields:
-          - svm
           - servers
           - domains
       register: dns_info
@@ -70,16 +72,7 @@
             else ((cluster_body.records | default([{}])) | first | default({}))
           }}
         dns_records: "{{ (dns_info.ontap_info.name_services_dns | default({})).records | default([]) }}"
-        dns_record: >-
-          {{
-            (
-              dns_records
-              | selectattr('svm.name', 'defined')
-              | selectattr('svm.name', 'equalto', cluster_record.name | default('') | string | trim)
-              | list
-              | first
-            ) | default({})
-          }}
+        dns_record: "{{ dns_records | first | default({}) }}"
         dns_servers_live: >-
           {{
             dns_record.servers
