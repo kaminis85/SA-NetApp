@@ -1,19 +1,11 @@
 ---
-# Undo of configure_autosupport.yaml.
-# Restores the previous AutoSupport settings only on nodes whose current
-# settings still match this deployment. Safe to run twice.
-- name: Restore ONTAP AutoSupport
+# Undo of configure_autosupport.yaml: remove AutoSupport on nodes whose mail
+# hosts, from address, and to addresses still match the form. Safe to run twice.
+- name: Remove ONTAP AutoSupport mail settings
   hosts: localhost
   connection: local
   gather_facts: false
   module_defaults:
-    netapp.ontap.na_ontap_autosupport:
-      hostname: "{{ ontap_hostname }}"
-      username: "{{ ontap_username }}"
-      password: "{{ ontap_password }}"
-      https: true
-      validate_certs: false
-      use_rest: always
     netapp.ontap.na_ontap_rest_info:
       hostname: "{{ ontap_hostname }}"
       username: "{{ ontap_username }}"
@@ -22,50 +14,37 @@
       validate_certs: false
       use_rest: always
       use_python_keys: true
+    netapp.ontap.na_ontap_autosupport:
+      hostname: "{{ ontap_hostname }}"
+      username: "{{ ontap_username }}"
+      password: "{{ ontap_password }}"
+      https: true
+      validate_certs: false
   vars:
-    prior_config_text: >-
-      {{
-        ''
-        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
-        else (
-          prior_config
-          if prior_config is mapping
-          else (
-            prior_config | string | trim
-            | replace('&quot;', '"')
-            | replace('&#34;', '"')
-            | replace('&amp;', '&')
-            | replace('&#39;', "'")
-            | replace('&apos;', "'")
-            | replace('&lt;', '<')
-            | replace('&gt;', '>')
-          )
-        )
-      }}
+    mail_host_list: "{{ (autosupport_mail_hosts | default('') | string).split(',') | map('trim') | reject('equalto', '') | list }}"
+    to_address_list: "{{ (autosupport_to_addresses | default('') | string).split(',') | map('trim') | reject('equalto', '') | list }}"
+    from_requested: "{{ autosupport_from_address | default('') | string | trim }}"
 
   tasks:
 
-    - name: Read the change recorded by the last launch
-      ansible.builtin.set_fact:
-        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
-      when: prior_config_text is mapping or prior_config_text | length > 0
-
-    - name: Use an empty record when this grain has no earlier change
-      ansible.builtin.set_fact:
-        incoming_prior:
-          changed: false
-      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
-
-    - name: Note that this deployment did not change AutoSupport
+    - name: Note that AutoSupport was not named on the form
       ansible.builtin.debug:
-        msg: This deployment did not change AutoSupport, so End leaves it unchanged.
-      when: not (incoming_prior.changed | default(false) | bool)
+        msg: AutoSupport mail settings were not named, so End leaves AutoSupport unchanged.
+      when: mail_host_list | length == 0 or to_address_list | length == 0 or from_requested | length == 0
 
-    - name: Stop when AutoSupport was not changed
-      when: not (incoming_prior.changed | default(false) | bool)
+    - name: Stop when AutoSupport was not named on the form
+      when: mail_host_list | length == 0 or to_address_list | length == 0 or from_requested | length == 0
       block:
         - name: Stop the play
           ansible.builtin.meta: end_play
+
+    - name: Discover ONTAP cluster nodes
+      netapp.ontap.na_ontap_rest_info:
+        gather_subset:
+          - cluster/nodes
+        fields:
+          - name
+      register: node_info
 
     - name: Read AutoSupport
       netapp.ontap.na_ontap_rest_info:
@@ -77,80 +56,74 @@
           - mail_hosts
           - from
           - to
-          - transport
-          - proxy_url
-          - contact_support
-          - enabled
       register: autosupport_info
 
-    - name: Select nodes that still match this deployment
+    - name: Build the node list
       ansible.builtin.set_fact:
-        nodes_to_restore: "{{ nodes_to_restore | default([]) + [item] }}"
-      vars:
+        node_list: >-
+          {{
+            node_info.ontap_info.cluster_nodes.records
+            | default([])
+            | map(attribute='name')
+            | map('string')
+            | map('trim')
+            | reject('equalto', '')
+            | list
+          }}
         autosupport_records: >-
           {{
             (autosupport_info.ontap_info.support_autosupport | default({})).records
             | default([autosupport_info.ontap_info.support_autosupport | default({})])
           }}
+
+    - name: Validate discovered nodes
+      ansible.builtin.assert:
+        that:
+          - node_list | length > 0
+        fail_msg: The cluster did not return any node names.
+
+    - name: Select nodes whose AutoSupport still matches the form
+      ansible.builtin.set_fact:
+        nodes_to_clear: "{{ nodes_to_clear | default([]) + [item] }}"
+      vars:
         node_records: >-
           {{
             autosupport_records
             | selectattr('node', 'defined')
-            | selectattr('node.name', 'equalto', item.node)
+            | selectattr('node.name', 'equalto', item)
             | list
           }}
         source_record: "{{ (node_records | first) if (node_records | length > 0) else (autosupport_records | first | default({})) }}"
-        support_flag: "{{ source_record.contact_support | default(source_record.enabled | default(false)) }}"
-        current_row:
-          node: "{{ item.node }}"
-          mail_hosts: "{{ source_record.mail_hosts | default([]) | map('string') | map('trim') | reject('equalto', '') | sort }}"
-          from: "{{ source_record['from'] | default('') | string | trim }}"
-          to: "{{ source_record.to | default([]) | map('string') | map('trim') | reject('equalto', '') | sort }}"
-          transport: "{{ source_record.transport | default('') | string | trim | lower }}"
-          support: "{{ 'true' if (support_flag | bool) else 'false' }}"
-          proxy_url: "{{ source_record.proxy_url | default('') | string | trim }}"
-        applied_row: >-
-          {{
-            (
-              incoming_prior.applied
-              | selectattr('node', 'equalto', item.node)
-              | list
-              | first
-            ) | default({})
-          }}
-      loop: "{{ incoming_prior.previous | default([]) }}"
+        live_mail: "{{ source_record.mail_hosts | default([]) | map('string') | map('trim') | reject('equalto', '') | sort }}"
+        live_to: "{{ source_record.to | default([]) | map('string') | map('trim') | reject('equalto', '') | sort }}"
+        live_from: "{{ source_record['from'] | default('') | string | trim }}"
+      loop: "{{ node_list }}"
       when:
-        - applied_row.node | default('') | length > 0
-        - current_row == applied_row
-        - item != applied_row
+        - live_mail == (mail_host_list | sort)
+        - live_to == (to_address_list | sort)
+        - live_from == from_requested
       loop_control:
-        label: "{{ item.node | default('node') }}"
+        label: "{{ item }}"
 
-    - name: Note that AutoSupport no longer matches this deployment
+    - name: Note that AutoSupport no longer matches the form
       ansible.builtin.debug:
-        msg: AutoSupport no longer matches this deployment, so End leaves it unchanged.
-      when: nodes_to_restore | default([]) | length == 0
+        msg: AutoSupport no longer matches the form, so End leaves it unchanged.
+      when: nodes_to_clear | default([]) | length == 0
 
-    - name: Stop when AutoSupport no longer matches
-      when: nodes_to_restore | default([]) | length == 0
+    - name: Stop when AutoSupport no longer matches the form
+      when: nodes_to_clear | default([]) | length == 0
       block:
         - name: Stop the play
           ansible.builtin.meta: end_play
 
-    - name: Restore AutoSupport
+    - name: Remove AutoSupport on the matching nodes
       netapp.ontap.na_ontap_autosupport:
-        node_name: "{{ item.node }}"
-        mail_hosts: "{{ item.mail_hosts if item.mail_hosts | length > 0 else omit }}"
-        from_address: "{{ item['from'] if item['from'] | length > 0 else omit }}"
-        to_addresses: "{{ item.to if item.to | length > 0 else omit }}"
-        transport: "{{ item.transport if item.transport | length > 0 else omit }}"
-        support: "{{ item.support | bool }}"
-        proxy_url: "{{ item.proxy_url if item.proxy_url | length > 0 else omit }}"
-        state: present
-      loop: "{{ nodes_to_restore }}"
+        state: absent
+        node_name: "{{ item }}"
+      loop: "{{ nodes_to_clear }}"
       loop_control:
-        label: "{{ item.node }}"
+        label: "{{ item }}"
 
-    - name: Report the restored AutoSupport nodes
+    - name: Report the nodes
       ansible.builtin.debug:
-        msg: "Restored AutoSupport on {{ nodes_to_restore | map(attribute='node') | join(', ') }}."
+        msg: "Removed AutoSupport mail settings on {{ nodes_to_clear | join(', ') }}."

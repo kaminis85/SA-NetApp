@@ -9,32 +9,12 @@
 # The VLAN name is also the broadcast domain name.
 # This task runs after the IPspace. The VLAN name is checked just before
 # the broadcast domain is created.
-# End deletes a broadcast domain only when this deployment created it.
 - name: Create ONTAP broadcast domains
   hosts: localhost
   connection: local
   gather_facts: false
   vars:
     ipspace_name_normalized: "{{ ipspace_name | default('') | string | trim }}"
-    prior_config_text: >-
-      {{
-        ''
-        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
-        else (
-          prior_config
-          if prior_config is mapping
-          else (
-            prior_config | string | trim
-            | replace('&quot;', '"')
-            | replace('&#34;', '"')
-            | replace('&amp;', '&')
-            | replace('&#39;', "'")
-            | replace('&apos;', "'")
-            | replace('&lt;', '<')
-            | replace('&gt;', '>')
-          )
-        )
-      }}
     network_inputs:
       - role: In-band management
         protocol: management
@@ -59,17 +39,6 @@
 
   tasks:
 
-    - name: Read the change recorded by the last launch
-      ansible.builtin.set_fact:
-        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
-      when: prior_config_text is mapping or prior_config_text | length > 0
-
-    - name: Use an empty record when this grain has no earlier change
-      ansible.builtin.set_fact:
-        incoming_prior:
-          changed: false
-      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
-
     - name: Skip a network when its VLAN name is blank
       ansible.builtin.debug:
         msg: >-
@@ -88,27 +57,9 @@
         msg: No VLAN name was provided, so no broadcast domain was created.
       when: vlan_plan | length == 0
 
-    - name: Keep the earlier broadcast-domain record when none were requested
-      torque.collections.export_torque_outputs:
-        outputs:
-          prior_config: "{{ incoming_prior | to_json }}"
-      when:
-        - vlan_plan | length == 0
-        - incoming_prior.changed | default(false) | bool
-
-    - name: Record that no broadcast domain was changed
-      torque.collections.export_torque_outputs:
-        outputs:
-          prior_config: "{{ {'changed': false} | to_json }}"
-      when:
-        - vlan_plan | length == 0
-        - not (incoming_prior.changed | default(false) | bool)
-
     - name: Stop when no VLAN was requested
+      ansible.builtin.meta: end_play
       when: vlan_plan | length == 0
-      block:
-        - name: Stop the play
-          ansible.builtin.meta: end_play
 
     - name: Validate the IPspace name
       ansible.builtin.assert:
@@ -141,46 +92,6 @@
         fail_msg: >-
           VLAN names must be unique. Requested names:
           {{ vlan_plan | map(attribute='name') | join(', ') }}.
-
-    - name: Read broadcast domains in this IPspace
-      netapp.ontap.na_ontap_rest_info:
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
-        use_rest: always
-        use_python_keys: true
-        gather_subset:
-          - network/ethernet/broadcast-domains
-        parameters:
-          ipspace.name: "{{ ipspace_name_normalized }}"
-        fields:
-          - name
-          - ipspace
-      register: domain_info
-
-    - name: Record broadcast domains that are not already present
-      ansible.builtin.set_fact:
-        added_now: "{{ added_now | default([]) + [row] }}"
-      vars:
-        row:
-          id: "{{ ipspace_name_normalized }}/{{ item.name }}"
-          name: "{{ item.name }}"
-          ipspace: "{{ ipspace_name_normalized }}"
-          role: "{{ item.role }}"
-        existing_names: >-
-          {{
-            ((domain_info.ontap_info | default({})).network_ethernet_broadcast_domains | default({})).records
-            | default([])
-            | map(attribute='name')
-            | map('string')
-            | list
-          }}
-      loop: "{{ vlan_plan }}"
-      when: item.name not in existing_names
-      loop_control:
-        label: "{{ item.role }} {{ item.name }}"
 
     - name: Create Management Broadcast Domain
       netapp.ontap.na_ontap_broadcast_domain:
@@ -232,24 +143,3 @@
       when: item.protocol == 'iSCSI'
       loop_control:
         label: "{{ item.protocol }} fabric {{ item.fabric }} {{ item.name }} MTU {{ item.mtu }}"
-
-    - name: Keep broadcast domains this deployment already created
-      ansible.builtin.set_fact:
-        added_objects: "{{ incoming_prior.added | default([]) }}"
-      when: incoming_prior.changed | default(false) | bool
-
-    - name: Start a new broadcast-domain list when this deployment has not created one
-      ansible.builtin.set_fact:
-        added_objects: []
-      when: not (incoming_prior.changed | default(false) | bool)
-
-    - name: Add broadcast domains that were not already on the cluster
-      ansible.builtin.set_fact:
-        added_objects: "{{ added_objects + [item] }}"
-      loop: "{{ added_now | default([]) }}"
-      when: item.id not in (added_objects | map(attribute='id') | list)
-
-    - name: Export the broadcast domains this deployment created
-      torque.collections.export_torque_outputs:
-        outputs:
-          prior_config: "{{ {'changed': (added_objects | length > 0), 'added': added_objects} | to_json }}"

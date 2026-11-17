@@ -1,52 +1,35 @@
 ---
-# Undo of configure_fips.yaml.
-# Restores the previous SSL FIPS mode only when this grain changed it and the
-# cluster still has the value this deployment set. Safe to run twice.
+# Undo of configure_fips.yaml: set SSL FIPS mode to the opposite of the form
+# when the cluster still has the value the form set. Safe to run twice.
 - name: Restore SSL FIPS mode
   hosts: localhost
   connection: local
   gather_facts: false
+  module_defaults:
+    netapp.ontap.na_ontap_rest_cli:
+      hostname: "{{ ontap_hostname }}"
+      username: "{{ ontap_username }}"
+      password: "{{ ontap_password }}"
+      https: true
+      validate_certs: false
+    netapp.ontap.na_ontap_security_config:
+      hostname: "{{ ontap_hostname }}"
+      username: "{{ ontap_username }}"
+      password: "{{ ontap_password }}"
+      https: true
+      validate_certs: false
   vars:
-    prior_config_text: >-
-      {{
-        ''
-        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
-        else (
-          prior_config
-          if prior_config is mapping
-          else (
-            prior_config | string | trim
-            | replace('&quot;', '"')
-            | replace('&#34;', '"')
-            | replace('&amp;', '&')
-            | replace('&#39;', "'")
-            | replace('&apos;', "'")
-            | replace('&lt;', '<')
-            | replace('&gt;', '>')
-          )
-        )
-      }}
+    fips_requested: "{{ is_fips_enabled | default('') | string | trim | lower }}"
 
   tasks:
 
-    - name: Read the change recorded by the last launch
-      ansible.builtin.set_fact:
-        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
-      when: prior_config_text is mapping or prior_config_text | length > 0
-
-    - name: Use an empty record when this grain has no earlier change
-      ansible.builtin.set_fact:
-        incoming_prior:
-          changed: false
-      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
-
-    - name: Note that this deployment did not change FIPS mode
+    - name: Note that FIPS was not set on the form
       ansible.builtin.debug:
-        msg: This deployment did not change SSL FIPS mode, so End leaves it unchanged.
-      when: not (incoming_prior.changed | default(false) | bool)
+        msg: The form did not set FIPS to true or false, so End leaves it unchanged.
+      when: fips_requested not in ['true', 'false']
 
-    - name: Stop when FIPS mode was not changed
-      when: not (incoming_prior.changed | default(false) | bool)
+    - name: Stop when FIPS was not set on the form
+      when: fips_requested not in ['true', 'false']
       block:
         - name: Stop the play
           ansible.builtin.meta: end_play
@@ -58,16 +41,12 @@
         params:
           privilege_level: advanced
           fields: interface,is-fips-enabled
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
       register: fips_show
 
     - name: Record SSL FIPS mode
       ansible.builtin.set_fact:
         live_value: "{{ 'true' if (fips_flag | bool) else 'false' }}"
+        restore_value: "{{ 'false' if (fips_requested == 'true') else 'true' }}"
       vars:
         fips_records: "{{ fips_show.msg.records | default([fips_show.msg | default({})]) }}"
         ssl_record: >-
@@ -88,57 +67,27 @@
     - name: Confirm SSL FIPS mode was read
       ansible.builtin.assert:
         that:
-          - fips_flag | string | trim | lower in ['true', 'false']
-        fail_msg: >-
-          Could not read SSL FIPS mode. The cluster returned '{{ fips_flag | default('') }}'.
-      vars:
-        fips_records: "{{ fips_show.msg.records | default([fips_show.msg | default({})]) }}"
-        ssl_record: >-
-          {{
-            fips_records
-            | selectattr('interface', 'defined')
-            | selectattr('interface', 'equalto', 'ssl')
-            | list
-            | first
-            | default(fips_records | first | default({}))
-          }}
-        fips_flag: >-
-          {{
-            ssl_record.is_fips_enabled
-            | default(ssl_record['is-fips-enabled'] | default(''))
-          }}
+          - live_value in ['true', 'false']
+        fail_msg: "Could not read SSL FIPS mode. The cluster returned '{{ live_value }}'."
 
-    - name: Note that FIPS mode no longer has the value this deployment set
+    - name: Note that FIPS no longer matches the form
       ansible.builtin.debug:
         msg: >-
-          SSL FIPS mode is '{{ live_value }}', not '{{ incoming_prior.applied }}',
-          so End leaves it unchanged.
-      when: live_value != (incoming_prior.applied | string)
+          SSL FIPS mode is {{ live_value }}, not {{ fips_requested }}, so End
+          leaves it unchanged.
+      when: live_value != fips_requested
 
-    - name: Stop when FIPS mode was changed after the launch
-      when: live_value != (incoming_prior.applied | string)
+    - name: Stop when FIPS no longer matches the form
+      when: live_value != fips_requested
       block:
         - name: Stop the play
           ansible.builtin.meta: end_play
 
-    - name: Confirm the recorded FIPS value can be restored
-      ansible.builtin.assert:
-        that:
-          - incoming_prior.previous | string in ['true', 'false']
-        fail_msg: >-
-          The recorded SSL FIPS value '{{ incoming_prior.previous | default('') }}'
-          cannot be restored.
-
-    - name: Restore SSL FIPS mode
+    - name: Set SSL FIPS mode
       netapp.ontap.na_ontap_security_config:
         name: ssl
-        is_fips_enabled: "{{ incoming_prior.previous | bool }}"
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
+        is_fips_enabled: "{{ restore_value | bool }}"
 
-    - name: Report the restored SSL FIPS mode
+    - name: Report the SSL FIPS mode
       ansible.builtin.debug:
-        msg: "SSL FIPS mode is restored to {{ incoming_prior.previous }}."
+        msg: "SSL FIPS mode is now {{ restore_value }}."

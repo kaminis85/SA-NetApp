@@ -18,25 +18,6 @@
     audit_log_volume_size_normalized: "{{ audit_log_volume_size_gb | default('') | string | trim }}"
     audit_log_aggregate_normalized: "{{ audit_log_aggregate | default('') | string | trim }}"
     audit_log_junction_path: "/{{ audit_log_volume_name_normalized }}"
-    prior_config_text: >-
-      {{
-        ''
-        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
-        else (
-          prior_config
-          if prior_config is mapping
-          else (
-            prior_config | string | trim
-            | replace('&quot;', '"')
-            | replace('&#34;', '"')
-            | replace('&amp;', '&')
-            | replace('&#39;', "'")
-            | replace('&apos;', "'")
-            | replace('&lt;', '<')
-            | replace('&gt;', '>')
-          )
-        )
-      }}
     node_rows: >-
       {{
         [] if (node_specs | default('[]') | string | trim) in ['', '[]']
@@ -44,17 +25,6 @@
       }}
 
   tasks:
-
-    - name: Read the change recorded by the last launch
-      ansible.builtin.set_fact:
-        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
-      when: prior_config_text is mapping or prior_config_text | length > 0
-
-    - name: Use an empty record when this grain has no earlier change
-      ansible.builtin.set_fact:
-        incoming_prior:
-          changed: false
-      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
 
     - name: Validate the SVM name
       ansible.builtin.assert:
@@ -138,43 +108,6 @@
           no space guarantee, snapshot reserve 0. Then refresh a load-sharing
           mirror set when one already exists, and enable auditing at
           {{ audit_log_junction_path }}.
-
-    - name: Read the audit log volume
-      netapp.ontap.na_ontap_rest_info:
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
-        use_rest: always
-        use_python_keys: true
-        gather_subset:
-          - storage/volumes
-        parameters:
-          name: "{{ audit_log_volume_name_normalized }}"
-          svm.name: "{{ svm_name_normalized }}"
-        fields:
-          - name
-      register: audit_volume_info
-
-    - name: Record the audit log volume when it is not already present
-      ansible.builtin.set_fact:
-        added_now: "{{ added_now | default([]) + [row] }}"
-      vars:
-        row:
-          id: "volume/{{ svm_name_normalized }}/{{ audit_log_volume_name_normalized }}"
-          kind: volume
-          svm: "{{ svm_name_normalized }}"
-          name: "{{ audit_log_volume_name_normalized }}"
-        existing_names: >-
-          {{
-            ((audit_volume_info.ontap_info | default({})).storage_volumes | default({})).records
-            | default([])
-            | map(attribute='name')
-            | map('string')
-            | list
-          }}
-      when: audit_log_volume_name_normalized not in existing_names
 
     - name: Create FlexVol for SVM audit log configuration
       netapp.ontap.na_ontap_volume:
@@ -306,49 +239,6 @@
         validate_certs: false
       when: load_sharing_records | default([]) | length > 0
 
-    - name: Read SVM auditing
-      netapp.ontap.na_ontap_rest_info:
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
-        use_rest: always
-        use_python_keys: true
-        gather_subset:
-          - protocols/audit
-        parameters:
-          svm.name: "{{ svm_name_normalized }}"
-        fields:
-          - svm
-          - enabled
-      register: audit_info
-      failed_when: false
-
-    - name: Record SVM auditing when it is not already enabled
-      ansible.builtin.set_fact:
-        added_now: "{{ added_now | default([]) + [row] }}"
-      vars:
-        row:
-          id: "audit/{{ svm_name_normalized }}"
-          kind: audit
-          svm: "{{ svm_name_normalized }}"
-        audit_records: >-
-          {{
-            ((audit_info.ontap_info | default({})).protocols_audit | default({})).records
-            | default([])
-          }}
-      when: >-
-        not (audit_info.failed | default(false))
-        and (
-          audit_records
-          | selectattr('enabled', 'defined')
-          | selectattr('enabled')
-          | list
-          | length
-        ) == 0
-        or (audit_info.failed | default(false))
-
     - name: Create and enable auditing configuration for the SVM
       netapp.ontap.na_ontap_vserver_audit:
         state: present
@@ -360,24 +250,3 @@
         password: "{{ ontap_password }}"
         https: true
         validate_certs: false
-
-    - name: Keep audit objects this deployment already created
-      ansible.builtin.set_fact:
-        added_objects: "{{ incoming_prior.added | default([]) }}"
-      when: incoming_prior.changed | default(false) | bool
-
-    - name: Start a new audit list when this deployment has not created one
-      ansible.builtin.set_fact:
-        added_objects: []
-      when: not (incoming_prior.changed | default(false) | bool)
-
-    - name: Add audit objects that were not already on the cluster
-      ansible.builtin.set_fact:
-        added_objects: "{{ added_objects + [item] }}"
-      loop: "{{ added_now | default([]) }}"
-      when: item.id not in (added_objects | map(attribute='id') | list)
-
-    - name: Export the audit objects this deployment created
-      torque.collections.export_torque_outputs:
-        outputs:
-          prior_config: "{{ {'changed': (added_objects | length > 0), 'added': added_objects} | to_json }}"

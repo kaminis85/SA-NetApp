@@ -26,58 +26,8 @@
   vars:
     svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
     svm_mgmt_lif_name_normalized: "{{ svm_mgmt_lif_name | default('') | string | trim }}"
-    prior_config_text: >-
-      {{
-        ''
-        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
-        else (
-          prior_config
-          if prior_config is mapping
-          else (
-            prior_config | string | trim
-            | replace('&quot;', '"')
-            | replace('&#34;', '"')
-            | replace('&amp;', '&')
-            | replace('&#39;', "'")
-            | replace('&apos;', "'")
-            | replace('&lt;', '<')
-            | replace('&gt;', '>')
-          )
-        )
-      }}
 
   tasks:
-
-    - name: Read the change recorded by the last launch
-      ansible.builtin.set_fact:
-        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
-      when: prior_config_text is mapping or prior_config_text | length > 0
-
-    - name: Use an empty record when this grain has no earlier change
-      ansible.builtin.set_fact:
-        incoming_prior:
-          changed: false
-      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
-
-    - name: Note that this deployment did not create the management LIF
-      ansible.builtin.debug:
-        msg: This deployment did not create the management LIF, so End leaves it unchanged.
-      when: >-
-        not (incoming_prior.changed | default(false) | bool)
-        or (incoming_prior.added | default([]) | length == 0)
-
-    - name: Stop when this deployment did not create the management LIF
-      when: >-
-        not (incoming_prior.changed | default(false) | bool)
-        or (incoming_prior.added | default([]) | length == 0)
-      block:
-        - name: Stop the play
-          ansible.builtin.meta: end_play
-
-    - name: Use the management LIF this deployment created
-      ansible.builtin.set_fact:
-        svm_name_normalized: "{{ (incoming_prior.added | first).svm }}"
-        svm_mgmt_lif_name_normalized: "{{ (incoming_prior.added | first).name }}"
 
     - name: Note that the management LIF was not requested
       ansible.builtin.debug:

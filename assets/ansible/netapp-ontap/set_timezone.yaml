@@ -3,26 +3,6 @@
   hosts: localhost
   connection: local
   gather_facts: false
-  vars:
-    prior_config_text: >-
-      {{
-        ''
-        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
-        else (
-          prior_config
-          if prior_config is mapping
-          else (
-            prior_config | string | trim
-            | replace('&quot;', '"')
-            | replace('&#34;', '"')
-            | replace('&amp;', '&')
-            | replace('&#39;', "'")
-            | replace('&apos;', "'")
-            | replace('&lt;', '<')
-            | replace('&gt;', '>')
-          )
-        )
-      }}
 
   tasks:
 
@@ -32,72 +12,6 @@
           - cluster_name | default('') | length > 0
           - time_zone | default('') | length > 0
         fail_msg: Timezone configuration needs cluster_name and time_zone.
-
-    - name: Read the change recorded by the last launch
-      ansible.builtin.set_fact:
-        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
-      when: prior_config_text is mapping or prior_config_text | length > 0
-
-    - name: Use an empty record when this grain has no earlier change
-      ansible.builtin.set_fact:
-        incoming_prior:
-          changed: false
-      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
-
-    - name: Read the cluster
-      netapp.ontap.na_ontap_rest_info:
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
-        use_rest: always
-        use_python_keys: true
-        gather_subset:
-          - cluster
-        fields:
-          - name
-          - timezone
-      register: cluster_info
-
-    - name: Record the cluster name and timezone
-      ansible.builtin.set_fact:
-        live_value:
-          name: "{{ cluster_record.name | default('') | string | trim }}"
-          timezone: "{{ (cluster_record.timezone | default({})).name | default('') | string | trim }}"
-        applied_value:
-          name: "{{ cluster_name | string | trim }}"
-          timezone: "{{ time_zone | string | trim }}"
-      vars:
-        cluster_body: "{{ cluster_info.ontap_info.cluster | default({}) }}"
-        cluster_record: >-
-          {{
-            cluster_body
-            if (cluster_body.name | default('') | string | length > 0)
-            else ((cluster_body.records | default([{}])) | first | default({}))
-          }}
-
-    - name: Confirm the cluster timezone was read
-      ansible.builtin.assert:
-        that:
-          - live_value.name | length > 0
-          - live_value.timezone | length > 0
-        fail_msg: The cluster did not return its name and timezone.
-
-    - name: Record whether the timezone still needs to change
-      ansible.builtin.set_fact:
-        changed_now: "{{ live_value != applied_value }}"
-        keep_original: >-
-          {{
-            (incoming_prior.changed | default(false) | bool)
-            and (
-              (live_value != applied_value)
-              or (
-                (incoming_prior.applied is defined)
-                and (live_value == incoming_prior.applied)
-              )
-            )
-          }}
 
     - name: Set the cluster timezone
       netapp.ontap.na_ontap_cluster:
@@ -110,24 +24,3 @@
         password: "{{ ontap_password }}"
         https: true
         validate_certs: false
-
-    - name: Keep the earlier timezone when this launch did not find a new change
-      ansible.builtin.set_fact:
-        prior_export:
-          changed: true
-          previous: "{{ incoming_prior.previous }}"
-          applied: "{{ applied_value }}"
-      when: keep_original | bool
-
-    - name: Record the timezone from this launch
-      ansible.builtin.set_fact:
-        prior_export:
-          changed: "{{ changed_now | bool }}"
-          previous: "{{ live_value }}"
-          applied: "{{ applied_value }}"
-      when: not (keep_original | bool)
-
-    - name: Export the recorded timezone change
-      torque.collections.export_torque_outputs:
-        outputs:
-          prior_config: "{{ prior_export | to_json }}"

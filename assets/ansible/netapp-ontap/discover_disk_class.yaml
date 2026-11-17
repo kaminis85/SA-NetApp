@@ -35,10 +35,8 @@
       when: requested_aggregates | default([]) | length == 0
 
     - name: Stop when no aggregate was requested
+      ansible.builtin.meta: end_play
       when: requested_aggregates | default([]) | length == 0
-      block:
-        - name: Stop the play
-          ansible.builtin.meta: end_play
 
     - name: Get the disk class information
       netapp.ontap.na_ontap_rest_info:

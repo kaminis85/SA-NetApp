@@ -1,8 +1,8 @@
 ---
-# Undo of add_licenses.yaml.
-# Removes only license serials this deployment added. A base license is left
-# in place because ONTAP does not remove it. Safe to run twice.
-- name: Remove ONTAP licenses added by this deployment
+# Undo of add_licenses.yaml: remove license packages named in the NetApp
+# license file. A legacy key does not include the package name, so End leaves
+# those packages installed. The base package is never removed. Safe to run twice.
+- name: Remove ONTAP licenses named in the license file
   hosts: localhost
   connection: local
   gather_facts: false
@@ -13,141 +13,77 @@
       password: "{{ ontap_password }}"
       https: true
       validate_certs: false
-      use_rest: always
-    netapp.ontap.na_ontap_rest_info:
-      hostname: "{{ ontap_hostname }}"
-      username: "{{ ontap_username }}"
-      password: "{{ ontap_password }}"
-      https: true
-      validate_certs: false
-      use_rest: always
-      use_python_keys: true
   vars:
-    prior_config_text: >-
-      {{
-        ''
-        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
-        else (
-          prior_config
-          if prior_config is mapping
-          else (
-            prior_config | string | trim
-            | replace('&quot;', '"')
-            | replace('&#34;', '"')
-            | replace('&amp;', '&')
-            | replace('&#39;', "'")
-            | replace('&apos;', "'")
-            | replace('&lt;', '<')
-            | replace('&gt;', '>')
-          )
-        )
-      }}
+    nlf_text: "{{ nlf_license_content | default('') | string }}"
+    legacy_text: "{{ legacy_license_keys | default('') | string | trim }}"
 
   tasks:
 
-    - name: Read the change recorded by the last launch
+    - name: Read package names from the license file
       ansible.builtin.set_fact:
-        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
-      when: prior_config_text is mapping or prior_config_text | length > 0
-
-    - name: Use an empty record when this grain has no earlier change
-      ansible.builtin.set_fact:
-        incoming_prior:
-          changed: false
-      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
-
-    - name: Note that this deployment did not add licenses
-      ansible.builtin.debug:
-        msg: This deployment did not add licenses, so End leaves them unchanged.
-      when: not (incoming_prior.changed | default(false) | bool) or (incoming_prior.added | default([]) | length == 0)
-
-    - name: Stop when no license was added
-      when: not (incoming_prior.changed | default(false) | bool) or (incoming_prior.added | default([]) | length == 0)
-      block:
-        - name: Stop the play
-          ansible.builtin.meta: end_play
-
-    - name: Read installed licenses
-      netapp.ontap.na_ontap_rest_info:
-        gather_subset:
-          - cluster/licensing/licenses
-        fields:
-          - name
-          - licenses.serial_number
-      register: licenses_now
-      no_log: true
-
-    - name: Record the installed license packages
-      ansible.builtin.set_fact:
-        license_packages_now: >-
+        nlf_packages: >-
           {{
-            (licenses_now.ontap_info.cluster_licensing_licenses | default({})).records
-            | default([])
+            (
+              nlf_text | regex_findall('(?i)"package"\s*:\s*"([^"]+)"')
+              + nlf_text | regex_findall('(?i)<package>([^<]+)</package>')
+            )
+            | map('trim')
+            | reject('equalto', '')
+            | unique
+            | reject('equalto', 'base')
+            | list
+          }}
+        nlf_serials: >-
+          {{
+            (
+              nlf_text | regex_findall('(?i)"serialNumber"\s*:\s*"([^"]+)"')
+              + nlf_text | regex_findall('(?i)<serialNumber>([^<]+)</serialNumber>')
+            )
+            | map('trim')
+            | reject('equalto', '')
+            | unique
+            | list
           }}
 
-    - name: Collect license serials that are still installed
-      ansible.builtin.set_fact:
-        installed_now: "{{ installed_now | default([]) + [license_id] }}"
-      vars:
-        license_id:
-          name: "{{ item.0.name | default('') | string | trim }}"
-          serial: "{{ item.1.serial_number | default('') | string | trim }}"
-      loop: "{{ license_packages_now | subelements('licenses', skip_missing=True) }}"
-      when: item.1.serial_number | default('') | string | trim | length > 0
-      no_log: true
-
-    - name: Select licenses this deployment added that are still installed
-      ansible.builtin.set_fact:
-        licenses_to_delete: "{{ licenses_to_delete | default([]) + [item] }}"
-      loop: "{{ incoming_prior.added }}"
-      when:
-        - item in (installed_now | default([]))
-        - item.name | lower != 'base'
-      no_log: true
-
-    - name: Note that ONTAP does not remove a base license
+    - name: Note that the license file does not name a package
       ansible.builtin.debug:
         msg: >-
-          This deployment added a base license. ONTAP does not remove that
-          package, so End leaves it in place.
-      when: >-
-        incoming_prior.added
-        | map(attribute='name')
-        | map('lower')
-        | select('equalto', 'base')
-        | list
-        | length > 0
+          {{
+            'Legacy license keys do not name the package, so End leaves those licenses installed.'
+            if (legacy_text | length > 0)
+            else 'No license file named a package, so End leaves licenses installed.'
+          }}
+      when: nlf_packages | length == 0
 
-    - name: Note that the added licenses are already gone
-      ansible.builtin.debug:
-        msg: The licenses added by this deployment are already gone.
-      when: licenses_to_delete | default([]) | length == 0
-
-    - name: Stop when the added licenses are already gone
-      when: licenses_to_delete | default([]) | length == 0
+    - name: Stop when no package was named
+      when: nlf_packages | length == 0
       block:
         - name: Stop the play
           ansible.builtin.meta: end_play
 
-    - name: Remove licenses added by this deployment
+    - name: Remove the license packages
       netapp.ontap.na_ontap_license:
         state: absent
         license_names:
-          - "{{ item.name }}"
-        serial_number: "{{ item.serial }}"
-      loop: "{{ licenses_to_delete }}"
+          - "{{ item }}"
+        serial_number: "{{ nlf_serials[0] if (nlf_serials | length == 1) else omit }}"
+      loop: "{{ nlf_packages }}"
       loop_control:
-        label: "{{ item.name }}"
+        label: "{{ item }}"
       register: license_delete
       failed_when: false
 
-    - name: Confirm the added licenses were removed
+    - name: Confirm the license packages were removed
       ansible.builtin.assert:
         that:
           - not (item.failed | default(false))
         fail_msg: >-
-          Removing license {{ item.item.name }} serial {{ item.item.serial }} failed:
+          Removing license {{ item.item }} failed:
           {{ item.msg | default('') }}
       loop: "{{ license_delete.results }}"
       loop_control:
-        label: "{{ item.item.name }}"
+        label: "{{ item.item }}"
+
+    - name: Report the removed license packages
+      ansible.builtin.debug:
+        msg: "Removed license packages {{ nlf_packages | join(', ') }}."

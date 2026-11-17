@@ -2,7 +2,7 @@
 
 The launch form does not show run or skip switches. Leave a section blank and that task stays skipped. Enter values and that task runs. The FIPS dropdown is the exception: it defaults to false and that task runs on every launch.
 
-Ending the deployment restores a cluster setting only when a launch of that task changed it and the cluster still has the value from that launch. The task records the previous value, and a later launch keeps it while the cluster still matches. End puts that previous value back. A setting that was already in place is left as it is. An edit made after the launch is left as it is when the cluster no longer matches. End deletes an aggregate, interface group, IPspace, broadcast domain, VLAN, SVM, LIF, route, export-policy rule, audit volume, or load-sharing mirror only when that task created it. An object that was already on the cluster is left in place. Spare-disk zeroing cannot be reversed. The vsadmin password stays as set and is removed when the SVM is deleted. When the SVM stays, End restores the SVM login banner to the previous message when this task changed it and the SVM still has the message from that launch. An empty previous message clears the banner. Deleting the SVM removes the banner with it. Validation, disk-class discovery, and the default broadcast-domain cleanup do not leave a setting for End to restore.
+Ending the deployment runs a teardown for each task that has one, in reverse dependency order, so SVM items are removed before the SVM, and the SVM before the aggregates, IPspace, and interface groups. The End section at the end of this document lists what each teardown does. Spare-disk zeroing cannot be reversed. Validation, disk-class discovery, the default broadcast-domain cleanup, and the vsadmin password have no teardown. The vsadmin password is removed when the SVM is deleted.
 
 Required fields are the agent, cluster management address, and password. The username defaults to admin. You can click Next and Finish with only those filled in.
 
@@ -18,7 +18,7 @@ SVM Configuration creates one SVM. Enter the SVM name to run it. Leave that name
 
 The load-sharing SnapMirror of the SVM root volume is its own task. It runs after the SVM task when the SVM name and the job name or job minutes are set. It creates the mirror volumes, then the job schedule, then the SnapMirror relationship. Both the job name and the job minutes are required. The schedule name defaults to `15min` and the minutes default to `0,15,30,45`, which runs at minute 0, 15, 30, and 45 of every hour. Other 15-minute examples are `5,20,35,50` and `7,22,37,52`. Clear both the job name and the minutes to skip the mirror volumes, the schedule, and the SnapMirror relationship. Set only one and this task fails at the schedule, after the mirror volumes are created. An invalid job name or invalid job minutes fail this task the same way. The SVM task is already done, so vsadmin, the banner, the management LIF, the route, SVM DNS, the NFS export policy, and the audit log volume still run. This task reads the node that hosts the SVM root volume from the cluster. Every node row that names an aggregate needs a node name, each node can appear only once, and one of those rows must be the root volume's node. Mirrors are 1 GB data-protection volumes, created on the aggregates from the node rows that are not on that same node. The SnapMirror relationship is load-sharing, initialized, and uses the job schedule. When every aggregate from the node rows is already on the root volume's node, the mirrors and the relationship are skipped. The schedule is still created when its fields are filled in.
 
-The vsadmin password is its own task. It runs after the SVM task. When the password is filled in, it is set on vsadmin and the account is unlocked for http, ontapi, and ssh. Leave it blank to skip that task and leave vsadmin unchanged. The SVM login banner is its own task and runs after the SVM task. It is set when that text is filled in. Leave it blank to skip the banner. When the SVM stays, End puts back the previous banner if this task changed it and the SVM still shows that text. An empty previous message clears the banner.
+The vsadmin password is its own task. It runs after the SVM task. When the password is filled in, it is set on vsadmin and the account is unlocked for http, ontapi, and ssh. Leave it blank to skip that task and leave vsadmin unchanged. The SVM login banner is its own task and runs after the SVM task. It is set when that text is filled in. Leave it blank to skip the banner. When the SVM stays, End clears the banner if the SVM still shows the text from the form.
 
 SVM management LIF is its own task. It runs after the SVM task and the VLAN interface task. It is four fields: `svm_mgmt_lif_name`, `svm_mgmt_lif_address`, `svm_mgmt_lif_netmask`, and `svm_mgmt_lif_gateway`. One SVM has one management LIF, so there is no control to add another. Example: `svm_mgmt_lif_name` `svm-mgmt`, `svm_mgmt_lif_address` `10.102.2.50`, `svm_mgmt_lif_netmask` `255.255.255.0`, `svm_mgmt_lif_gateway` `10.102.2.254`. Leave `svm_mgmt_lif_name`, `svm_mgmt_lif_address`, or `svm_mgmt_lif_netmask` blank to skip the LIF. Leave the interface group name or the in-band management VLAN name or VLAN ID blank to skip it as well. Leave `svm_mgmt_lif_gateway` blank to skip the default route. If the LIF is skipped, the route is skipped as well. The LIF is created when `svm_mgmt_lif_name`, `svm_mgmt_lif_address`, and `svm_mgmt_lif_netmask` are all filled in and the interface group and in-band management VLAN are filled in. At least one node row must list data ports. The interface group and the VLAN interface are created only on those nodes, so with no data ports both of those tasks finish without creating the home port. The LIF task then fails before it calls the cluster. Add data ports to a node row, or clear the LIF fields to skip it. Leave the SVM name blank and the LIF, the default route, and SVM DNS are skipped with the SVM task.
 
@@ -45,7 +45,7 @@ Cluster name is used by the location, timezone, and HTTP tasks. It must exactly 
 | SVM name, the IPspace name, at least one aggregate name on the node rows, and nfs, iscsi, or both | Create the SVM in that IPspace, assign those aggregates, and allow the selected protocols. This task waits for the IPspace and the aggregates. It waits for the license task when legacy keys or an NLF are entered. It looks up each selected nfs or iscsi package first, shows the owner, serial number, installed license, expiration, and licenses.compliance.state, and fails if a serial for that package is missing or not compliant. nfs starts NFSv3 and NFSv4.1 and disables UDP. iscsi starts the iSCSI service. Leave the SVM name blank to skip the SVM and the tasks that follow it. The protocol dropdown starts empty; choose nfs, iscsi, or both |
 | SVM name, job name, and job minutes | Create the load-sharing SnapMirror of the SVM root volume after the SVM task. Both the job name and the job minutes are required. The schedule defaults to `15min` and `0,15,30,45`. Create a 1 GB load-sharing mirror on each aggregate that is not on the root volume's node, then create the job schedule, then initialize the load-sharing SnapMirror relationship that uses that schedule. Clear both job fields to skip the mirrors, the schedule, and the relationship. Set only one and this task fails at the schedule |
 | SVM name and vsadmin password | Set the vsadmin password and unlock vsadmin for http, ontapi, and ssh. This task runs after the SVM task. Leave the password blank to leave vsadmin unchanged |
-| SVM name and SVM login banner | Set the SVM login banner after the SVM task. Leave it blank to skip the banner. When the SVM stays, End restores the previous banner if this task changed it and the SVM still shows that text |
+| SVM name and SVM login banner | Set the SVM login banner after the SVM task. Leave it blank to skip the banner. When the SVM stays, End clears the banner if the SVM still shows the text from the form. |
 | SVM name, svm_mgmt_lif_name, svm_mgmt_lif_address, and svm_mgmt_lif_netmask, plus the interface group name, the in-band management VLAN name and VLAN ID, and data ports on a node row | Create the SVM management LIF on the node that hosts the SVM root volume. This task runs after the SVM and the VLAN interfaces. The home port is `<interface group>-<VLAN ID>`, for example `a0a-2235`. Leave svm_mgmt_lif_name, svm_mgmt_lif_address, or svm_mgmt_lif_netmask blank to skip the LIF. Leave the interface group or the in-band management VLAN blank to skip it as well. With no data ports on any node row this task fails before it calls the cluster. Leave the SVM name blank to skip it with the SVM task |
 | SVM name, the SVM management LIF fields, and svm_mgmt_lif_gateway | Create the SVM default route `0.0.0.0/0` through that gateway. This task runs after the management LIF. Leave svm_mgmt_lif_gateway blank, or skip the LIF, and the route is skipped. Leave the SVM name blank to skip it with the SVM task |
 | SVM name and both svm_dns_servers and svm_dns_domain | Configure DNS on the SVM after the default route. The default route runs after the management LIF, and that LIF runs after the SVM task. Example servers `10.1.1.10,10.1.1.11` and domain `example.com`. Leave both fields blank to skip SVM DNS. Set only one and the SVM DNS task fails. These fields are separate from cluster DNS |
@@ -60,3 +60,46 @@ Cluster name is used by the location, timezone, and HTTP tasks. It must exactly 
 | FIPS dropdown | Set SSL FIPS mode on every launch. The dropdown defaults to `false`, which matches a new ONTAP cluster. Choose `true` to enable FIPS-compliant SSL |
 | Any of SNMP contact, location, community, traphost, or SNMPv3 user | Configure and enable SNMP. Contact, location, and the SNMPv3 user each apply only when that field is filled, so leaving location or traphost blank does not skip the rest. Authentication and privacy are chosen independently, and both password fields stay on the form. With FIPS `false`, authentication is `none`, `md5`, `sha`, or `sha2_256` and privacy is `none`, `des`, or `aes128`. A password is required for each protocol that is not `none` when an SNMPv3 user is set. Community and traphost apply only when FIPS is `false` and that field is filled. With FIPS `true`, the form shows `sha` or `sha2_256` for authentication and `aes128` for privacy, and both passwords are required when an SNMPv3 user is set |
 | Login banner text | Set the login banner |
+
+## Ending the deployment
+
+Each row shows what End does for that task. Every teardown can run again safely.
+
+| Task | What End does |
+| --- | --- |
+| Update cluster location | Clears the cluster location when it still matches the form. The cluster name is not changed |
+| Ensure cluster management auto-revert | Turns auto-revert off on the cluster management interface when it is on |
+| Configure SP network | Disables the service-processor IPv4 interface on each node whose address still matches the form. The address stays in place |
+| Create data aggregates | Deletes the data aggregates named in the node rows after the volumes on them are gone. Root aggregates (`aggr0` and `aggr0_*`) are never deleted |
+| Zero spare disks | Reports that zeroing cannot be reversed and leaves the disks as they are |
+| Ensure cluster HA | On a two-node cluster, disables cluster HA when it is configured. Other cluster sizes are left unchanged |
+| Disable flow control | Sets flow control back to `full` on the named data ports that are currently `none` |
+| Enable CDP | Turns CDP off when it is on |
+| Enable LLDP | Turns LLDP off when it is on |
+| Configure DNS | Removes cluster DNS when the DNS servers and domain still match the form |
+| Configure NTP | Deletes the NTP servers named on the form that are still present |
+| Enable storage failover | Disables takeover on each node where it is enabled |
+| Set timezone | Leaves the timezone and the cluster name unchanged |
+| Configure AutoSupport | Removes the AutoSupport mail settings on the nodes where the mail hosts, from address, and to addresses still match the form |
+| Add licenses | Removes the license packages named in the NetApp license file. Packages from legacy keys are left installed, and the base package is never removed |
+| Configure FIPS | When the cluster still has the form's FIPS value, sets it to the opposite value. A form value of `true` becomes `false`, and `false` becomes `true` |
+| Configure SNMP | Removes the SNMP community, SNMPv3 user, and traphost named on the form, and clears the contact and location when they were set |
+| Create login banner | Clears the cluster login banner when it still matches the form |
+| Disable HTTP cluster management | Adds `management-http` back to the `default-management` service policy when it is missing. Does nothing when the cluster name is blank |
+| Configure interface group | Removes the member ports, then deletes the interface group with the name entered, on each node that lists data ports |
+| Configure IPspace | Deletes the IPspace with the name entered. `Default` and `Cluster` are refused. ONTAP removes the empty Default broadcast domain with it |
+| Configure broadcast domains | Deletes the broadcast domain for each filled-in VLAN name (in-band management, NFS, iSCSI A, and iSCSI B) |
+| Configure VLAN interfaces | Deletes the VLAN interfaces for the filled-in VLAN IDs on the interface group |
+| Configure SVM | Deletes the SVM and its root volume. Runs after the LIFs, export-policy rule, audit log, and load-sharing volumes are gone |
+| Configure load-sharing SnapMirror | Deletes the load-sharing relationships and the mirror volumes named `<root>_lsm0<hex>`. Deletes the job schedule only when it is not a built-in schedule and no SnapMirror relationship still uses it |
+| Configure vsadmin | No teardown. The password stays set until the SVM is deleted |
+| SVM login banner | Clears the SVM login banner when the SVM still shows the text from the form |
+| SVM management LIF | Deletes the SVM management LIF named on the form |
+| SVM default route | Deletes the SVM default route |
+| SVM DNS | Removes DNS from the SVM |
+| NFS export policy rule | Deletes rule index 1 on the SVM default export policy. The policy stays until the SVM is deleted |
+| SVM audit log | Disables SVM auditing, then deletes the audit log volume |
+| NFS LIFs | Deletes the NFS LIFs |
+| iSCSI LIFs | Deletes the iSCSI LIFs on fabric A and fabric B |
+
+Pre-validation, discover disk class, delete default broadcast domains, and post-config validation have no teardown.

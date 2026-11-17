@@ -1,75 +1,54 @@
 ---
-# Undo of enable_storage_failover.yaml.
-# Disables storage failover only on nodes where this grain turned it on and
-# it is still enabled. Nodes that were already enabled stay enabled.
-# Safe to run twice.
-- name: Restore ONTAP storage failover
+# Undo of enable_storage_failover.yaml: disable storage-failover takeover on
+# each node where it is enabled. Safe to run twice.
+- name: Disable ONTAP storage failover
   hosts: localhost
   connection: local
   gather_facts: false
-  vars:
-    prior_config_text: >-
-      {{
-        ''
-        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
-        else (
-          prior_config
-          if prior_config is mapping
-          else (
-            prior_config | string | trim
-            | replace('&quot;', '"')
-            | replace('&#34;', '"')
-            | replace('&amp;', '&')
-            | replace('&#39;', "'")
-            | replace('&apos;', "'")
-            | replace('&lt;', '<')
-            | replace('&gt;', '>')
-          )
-        )
-      }}
+  module_defaults:
+    netapp.ontap.na_ontap_rest_info:
+      hostname: "{{ ontap_hostname }}"
+      username: "{{ ontap_username }}"
+      password: "{{ ontap_password }}"
+      https: true
+      validate_certs: false
+      use_rest: always
+      use_python_keys: true
+    netapp.ontap.na_ontap_rest_cli:
+      hostname: "{{ ontap_hostname }}"
+      username: "{{ ontap_username }}"
+      password: "{{ ontap_password }}"
+      https: true
+      validate_certs: false
 
   tasks:
 
-    - name: Read the change recorded by the last launch
+    - name: Discover ONTAP cluster nodes
+      netapp.ontap.na_ontap_rest_info:
+        gather_subset:
+          - cluster/nodes
+        fields:
+          - name
+      register: node_info
+
+    - name: Build the node list
       ansible.builtin.set_fact:
-        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
-      when: prior_config_text is mapping or prior_config_text | length > 0
+        node_list: >-
+          {{
+            node_info.ontap_info.cluster_nodes.records
+            | default([])
+            | map(attribute='name')
+            | map('string')
+            | map('trim')
+            | reject('equalto', '')
+            | list
+          }}
 
-    - name: Use an empty record when this grain has no earlier change
-      ansible.builtin.set_fact:
-        incoming_prior:
-          changed: false
-      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
-
-    - name: Note that this deployment did not change storage failover
-      ansible.builtin.debug:
-        msg: This deployment did not change storage failover, so End leaves it unchanged.
-      when: not (incoming_prior.changed | default(false) | bool)
-
-    - name: Stop when storage failover was not changed
-      when: not (incoming_prior.changed | default(false) | bool)
-      block:
-        - name: Stop the play
-          ansible.builtin.meta: end_play
-
-    - name: Select nodes where this deployment enabled storage failover
-      ansible.builtin.set_fact:
-        nodes_to_restore: "{{ nodes_to_restore | default([]) + [item.node] }}"
-      loop: "{{ incoming_prior.previous | default([]) }}"
-      when: (item.enabled | string) == 'false'
-      loop_control:
-        label: "{{ item.node | default('unnamed node') }}"
-
-    - name: Note that storage failover was already enabled on every node
-      ansible.builtin.debug:
-        msg: Storage failover was already enabled, so End leaves it unchanged.
-      when: nodes_to_restore | default([]) | length == 0
-
-    - name: Stop when no node needs storage failover restored
-      when: nodes_to_restore | default([]) | length == 0
-      block:
-        - name: Stop the play
-          ansible.builtin.meta: end_play
+    - name: Validate discovered nodes
+      ansible.builtin.assert:
+        that:
+          - node_list | length > 0
+        fail_msg: The cluster did not return any node names.
 
     - name: Read storage failover
       netapp.ontap.na_ontap_rest_cli:
@@ -78,20 +57,14 @@
         params:
           node: "{{ item }}"
           fields: node,enabled
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
-      loop: "{{ nodes_to_restore }}"
+      loop: "{{ node_list }}"
       loop_control:
         label: "{{ item }}"
       register: failover_show
-      failed_when: false
 
-    - name: Select nodes that are still enabled
+    - name: Select nodes that still have takeover enabled
       ansible.builtin.set_fact:
-        nodes_still_enabled: "{{ nodes_still_enabled | default([]) + [item.item] }}"
+        nodes_to_disable: "{{ nodes_to_disable | default([]) + [item.item] }}"
       vars:
         failover_record: >-
           {{
@@ -99,42 +72,40 @@
             | first
             | default({})
           }}
-        enabled_flag: "{{ failover_record.enabled | default('') | string | trim | lower }}"
+        enabled_flag: >-
+          {{
+            failover_record.enabled
+            | default('')
+            | string
+            | trim
+            | lower
+          }}
       loop: "{{ failover_show.results }}"
-      when:
-        - not (item.failed | default(false))
-        - enabled_flag == 'true'
+      when: enabled_flag in ['true', 'on']
       loop_control:
         label: "{{ item.item }}"
 
-    - name: Note that storage failover is no longer enabled on the nodes this deployment changed
+    - name: Note that storage failover is already disabled
       ansible.builtin.debug:
-        msg: >-
-          Storage failover is no longer enabled on the nodes this deployment
-          changed, so End leaves it unchanged.
-      when: nodes_still_enabled | default([]) | length == 0
+        msg: Storage failover takeover is already disabled, so End leaves it unchanged.
+      when: nodes_to_disable | default([]) | length == 0
 
-    - name: Stop when those nodes are no longer enabled
-      when: nodes_still_enabled | default([]) | length == 0
+    - name: Stop when storage failover is already disabled
+      when: nodes_to_disable | default([]) | length == 0
       block:
         - name: Stop the play
           ansible.builtin.meta: end_play
 
-    - name: Disable storage failover on nodes this deployment enabled
+    - name: Disable takeover for storage failover
       netapp.ontap.na_ontap_rest_cli:
         command: "storage/failover/objects/{{ item }}"
         verb: PATCH
         body:
           enabled: "false"
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
-      loop: "{{ nodes_still_enabled }}"
+      loop: "{{ nodes_to_disable }}"
       loop_control:
         label: "{{ item }}"
 
-    - name: Report the restored storage failover nodes
+    - name: Report the nodes
       ansible.builtin.debug:
-        msg: "Disabled storage failover on {{ nodes_still_enabled | join(', ') }}."
+        msg: "Disabled storage failover takeover on {{ nodes_to_disable | join(', ') }}."

@@ -3,39 +3,8 @@
   hosts: localhost
   connection: local
   gather_facts: false
-  vars:
-    prior_config_text: >-
-      {{
-        ''
-        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
-        else (
-          prior_config
-          if prior_config is mapping
-          else (
-            prior_config | string | trim
-            | replace('&quot;', '"')
-            | replace('&#34;', '"')
-            | replace('&amp;', '&')
-            | replace('&#39;', "'")
-            | replace('&apos;', "'")
-            | replace('&lt;', '<')
-            | replace('&gt;', '>')
-          )
-        )
-      }}
 
   tasks:
-
-    - name: Read the change recorded by the last launch
-      ansible.builtin.set_fact:
-        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
-      when: prior_config_text is mapping or prior_config_text | length > 0
-
-    - name: Use an empty record when this grain has no earlier change
-      ansible.builtin.set_fact:
-        incoming_prior:
-          changed: false
-      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
 
     - name: Discover ONTAP cluster nodes
       netapp.ontap.na_ontap_rest_info:
@@ -69,87 +38,6 @@
           - node_list | length > 0
         fail_msg: The cluster did not return any node names.
 
-    - name: Read storage failover
-      netapp.ontap.na_ontap_rest_cli:
-        command: storage/failover
-        verb: GET
-        params:
-          node: "{{ item }}"
-          fields: node,enabled
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
-      loop: "{{ node_list }}"
-      loop_control:
-        label: "{{ item }}"
-      register: failover_show
-
-    - name: Record storage failover for each node
-      ansible.builtin.set_fact:
-        live_value: "{{ (live_value | default([])) + [row] }}"
-      vars:
-        failover_record: >-
-          {{
-            (item.msg.records | default([item.msg | default({})]))
-            | first
-            | default({})
-          }}
-        enabled_flag: "{{ failover_record.enabled | default('') | string | trim | lower }}"
-        row:
-          node: "{{ item.item }}"
-          enabled: "{{ 'true' if (enabled_flag | bool) else 'false' }}"
-      loop: "{{ failover_show.results }}"
-      loop_control:
-        label: "{{ item.item }}"
-
-    - name: Confirm storage failover was read
-      ansible.builtin.assert:
-        that:
-          - enabled_flag in ['true', 'false']
-        fail_msg: >-
-          Could not read storage failover for {{ item.item }}.
-          The cluster returned '{{ enabled_flag }}'.
-      vars:
-        failover_record: >-
-          {{
-            (item.msg.records | default([item.msg | default({})]))
-            | first
-            | default({})
-          }}
-        enabled_flag: "{{ failover_record.enabled | default('') | string | trim | lower }}"
-      loop: "{{ failover_show.results }}"
-      loop_control:
-        label: "{{ item.item }}"
-
-    - name: Sort the storage failover values read from the cluster
-      ansible.builtin.set_fact:
-        live_value: "{{ live_value | sort(attribute='node') }}"
-
-    - name: Build the storage failover value this launch applies
-      ansible.builtin.set_fact:
-        applied_value: "{{ (applied_value | default([])) + [{'node': item, 'enabled': 'true'}] }}"
-      loop: "{{ node_list | sort }}"
-
-    - name: Record whether storage failover still needs to change
-      ansible.builtin.set_fact:
-        changed_now: "{{ live_value != applied_value }}"
-
-    - name: Record whether an earlier launch already changed storage failover
-      ansible.builtin.set_fact:
-        keep_original: >-
-          {{
-            (incoming_prior.changed | default(false) | bool)
-            and (
-              (changed_now | bool)
-              or (
-                (incoming_prior.applied is defined)
-                and (live_value == incoming_prior.applied)
-              )
-            )
-          }}
-
     - name: Enable takeover for storage failover
       netapp.ontap.na_ontap_rest_cli:
         command: "storage/failover/objects/{{ item }}"
@@ -162,24 +50,3 @@
         https: true
         validate_certs: false
       loop: "{{ node_list }}"
-
-    - name: Keep the earlier storage failover values when this launch did not find a new change
-      ansible.builtin.set_fact:
-        prior_export:
-          changed: true
-          previous: "{{ incoming_prior.previous }}"
-          applied: "{{ applied_value }}"
-      when: keep_original | bool
-
-    - name: Record the storage failover values from this launch
-      ansible.builtin.set_fact:
-        prior_export:
-          changed: "{{ changed_now | bool }}"
-          previous: "{{ live_value }}"
-          applied: "{{ applied_value }}"
-      when: not (keep_original | bool)
-
-    - name: Export the recorded storage failover change
-      torque.collections.export_torque_outputs:
-        outputs:
-          prior_config: "{{ prior_export | to_json }}"

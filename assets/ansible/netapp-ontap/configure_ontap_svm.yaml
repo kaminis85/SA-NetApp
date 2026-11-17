@@ -17,25 +17,6 @@
   vars:
     svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
     ipspace_name_normalized: "{{ ipspace_name | default('') | string | trim }}"
-    prior_config_text: >-
-      {{
-        ''
-        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
-        else (
-          prior_config
-          if prior_config is mapping
-          else (
-            prior_config | string | trim
-            | replace('&quot;', '"')
-            | replace('&#34;', '"')
-            | replace('&amp;', '&')
-            | replace('&#39;', "'")
-            | replace('&apos;', "'")
-            | replace('&lt;', '<')
-            | replace('&gt;', '>')
-          )
-        )
-      }}
     node_rows: >-
       {{
         [] if (node_specs | default('[]') | string | trim) in ['', '[]']
@@ -67,43 +48,14 @@
 
   tasks:
 
-    - name: Read the change recorded by the last launch
-      ansible.builtin.set_fact:
-        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
-      when: prior_config_text is mapping or prior_config_text | length > 0
-
-    - name: Use an empty record when this grain has no earlier change
-      ansible.builtin.set_fact:
-        incoming_prior:
-          changed: false
-      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
-
     - name: Note that the SVM name is blank
       ansible.builtin.debug:
         msg: The SVM name is blank, so SVM configuration was skipped.
       when: svm_name_normalized | length == 0
 
-    - name: Keep the earlier SVM record when the SVM name is blank
-      torque.collections.export_torque_outputs:
-        outputs:
-          prior_config: "{{ incoming_prior | to_json }}"
-      when:
-        - svm_name_normalized | length == 0
-        - incoming_prior.changed | default(false) | bool
-
-    - name: Record that no SVM was changed
-      torque.collections.export_torque_outputs:
-        outputs:
-          prior_config: "{{ {'changed': false} | to_json }}"
-      when:
-        - svm_name_normalized | length == 0
-        - not (incoming_prior.changed | default(false) | bool)
-
     - name: Stop when the SVM name is blank
+      ansible.builtin.meta: end_play
       when: svm_name_normalized | length == 0
-      block:
-        - name: Stop the play
-          ansible.builtin.meta: end_play
 
     - name: Normalize node rows
       ansible.builtin.set_fact:
@@ -293,41 +245,6 @@
           with protocols {{ protocol_list | join(', ') }}:
           {{ total_aggr_list | join(', ') }}.
 
-    - name: Read the SVM
-      netapp.ontap.na_ontap_rest_info:
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
-        use_rest: always
-        use_python_keys: true
-        gather_subset:
-          - svm/svms
-        parameters:
-          name: "{{ svm_name_normalized }}"
-        fields:
-          - name
-      register: svm_lookup
-
-    - name: Record the SVM when it is not already present
-      ansible.builtin.set_fact:
-        added_now: "{{ added_now | default([]) + [row] }}"
-      vars:
-        row:
-          id: "{{ svm_name_normalized }}"
-          name: "{{ svm_name_normalized }}"
-          ipspace: "{{ ipspace_name_normalized }}"
-        existing_names: >-
-          {{
-            ((svm_lookup.ontap_info | default({})).svm_svms | default({})).records
-            | default([])
-            | map(attribute='name')
-            | map('string')
-            | list
-          }}
-      when: svm_name_normalized not in existing_names
-
     - name: Create the SVM with the selected protocols
       netapp.ontap.na_ontap_svm:
         state: present
@@ -390,24 +307,3 @@
         validate_certs: false
         use_rest: always
       when: "'iscsi' in protocol_list"
-
-    - name: Keep SVMs this deployment already created
-      ansible.builtin.set_fact:
-        added_objects: "{{ incoming_prior.added | default([]) }}"
-      when: incoming_prior.changed | default(false) | bool
-
-    - name: Start a new SVM list when this deployment has not created one
-      ansible.builtin.set_fact:
-        added_objects: []
-      when: not (incoming_prior.changed | default(false) | bool)
-
-    - name: Add the SVM when it was not already on the cluster
-      ansible.builtin.set_fact:
-        added_objects: "{{ added_objects + [item] }}"
-      loop: "{{ added_now | default([]) }}"
-      when: item.id not in (added_objects | map(attribute='id') | list)
-
-    - name: Export the SVMs this deployment created
-      torque.collections.export_torque_outputs:
-        outputs:
-          prior_config: "{{ {'changed': (added_objects | length > 0), 'added': added_objects} | to_json }}"

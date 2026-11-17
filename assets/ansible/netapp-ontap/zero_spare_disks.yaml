@@ -3,76 +3,8 @@
   hosts: localhost
   connection: local
   gather_facts: false
-  vars:
-    prior_config_text: >-
-      {{
-        ''
-        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
-        else (
-          prior_config
-          if prior_config is mapping
-          else (
-            prior_config | string | trim
-            | replace('&quot;', '"')
-            | replace('&#34;', '"')
-            | replace('&amp;', '&')
-            | replace('&#39;', "'")
-            | replace('&apos;', "'")
-            | replace('&lt;', '<')
-            | replace('&gt;', '>')
-          )
-        )
-      }}
 
   tasks:
-
-    - name: Read the change recorded by the last launch
-      ansible.builtin.set_fact:
-        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
-      when: prior_config_text is mapping or prior_config_text | length > 0
-
-    - name: Use an empty record when this grain has no earlier change
-      ansible.builtin.set_fact:
-        incoming_prior:
-          changed: false
-      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
-
-    - name: Read spare disks
-      netapp.ontap.na_ontap_rest_cli:
-        command: storage/disk
-        verb: GET
-        params:
-          container-type: spare
-          fields: disk,container-type,is-zeroed
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
-      register: spare_show
-      failed_when: false
-
-    - name: Note that spare-disk zeroing state could not be read
-      ansible.builtin.set_fact:
-        zero_state_unknown: true
-      when: spare_show.failed | default(false)
-
-    - name: Count spare disks that are not zeroed
-      ansible.builtin.set_fact:
-        unzeroed_spares: "{{ (unzeroed_spares | default(0) | int) + (1 if (zeroed_flag == 'false') else 0) }}"
-        zero_state_unknown: "{{ (zero_state_unknown | default(false) | bool) or (zeroed_flag not in ['true', 'false']) }}"
-      vars:
-        zeroed_flag: >-
-          {{
-            (
-              item.is_zeroed
-              | default(item['is-zeroed'] | default(''))
-            ) | string | trim | lower
-          }}
-      loop: "{{ spare_show.msg.records | default([]) }}"
-      when: not (spare_show.failed | default(false))
-      loop_control:
-        label: "{{ item.disk | default(item.name | default('spare disk')) }}"
 
     - name: Zero all spare disks
       netapp.ontap.na_ontap_rest_cli:
@@ -83,26 +15,3 @@
         password: "{{ ontap_password }}"
         https: true
         validate_certs: false
-
-    - name: Record that spare disks were already zeroed
-      ansible.builtin.set_fact:
-        prior_export:
-          changed: false
-      when: >-
-        not (incoming_prior.changed | default(false) | bool)
-        and (unzeroed_spares | default(0) | int == 0)
-        and not (zero_state_unknown | default(false) | bool)
-
-    - name: Keep the record that this deployment zeroed spare disks
-      ansible.builtin.set_fact:
-        prior_export:
-          changed: true
-      when: >-
-        (incoming_prior.changed | default(false) | bool)
-        or (unzeroed_spares | default(0) | int > 0)
-        or (zero_state_unknown | default(false) | bool)
-
-    - name: Export whether spare disks were zeroed
-      torque.collections.export_torque_outputs:
-        outputs:
-          prior_config: "{{ prior_export | to_json }}"

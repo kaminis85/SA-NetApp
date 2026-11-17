@@ -3,7 +3,7 @@
 # Deletes the load-sharing SnapMirror relationships, the mirror volumes named
 # <root>_lsm0<hex>, and the job schedule. Built-in schedules (5min, 8hour,
 # hourly, daily, weekly, monthly, and pg-*) are left in place.
-# This runs before the audit volume, the SVM, and the aggregates are deleted.
+# This runs before the SVM and the aggregates are deleted.
 # The job schedule is deleted only when no SnapMirror relationship still uses
 # it. Safe to run twice.
 - name: Delete the SVM root load-sharing SnapMirror
@@ -42,25 +42,6 @@
   vars:
     svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
     job_name_normalized: "{{ job_name | default('') | string | trim }}"
-    prior_config_text: >-
-      {{
-        ''
-        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
-        else (
-          prior_config
-          if prior_config is mapping
-          else (
-            prior_config | string | trim
-            | replace('&quot;', '"')
-            | replace('&#34;', '"')
-            | replace('&amp;', '&')
-            | replace('&#39;', "'")
-            | replace('&apos;', "'")
-            | replace('&lt;', '<')
-            | replace('&gt;', '>')
-          )
-        )
-      }}
     builtin_schedules:
       - 5min
       - 8hour
@@ -70,78 +51,6 @@
       - monthly
 
   tasks:
-
-    - name: Read the change recorded by the last launch
-      ansible.builtin.set_fact:
-        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
-      when: prior_config_text is mapping or prior_config_text | length > 0
-
-    - name: Use an empty record when this grain has no earlier change
-      ansible.builtin.set_fact:
-        incoming_prior:
-          changed: false
-      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
-
-    - name: Note that this deployment did not create a load-sharing mirror
-      ansible.builtin.debug:
-        msg: >-
-          This deployment did not create a load-sharing mirror, relationship,
-          or job schedule, so End leaves them unchanged.
-      when: >-
-        not (incoming_prior.changed | default(false) | bool)
-        or (incoming_prior.added | default([]) | length == 0)
-
-    - name: Stop when this deployment did not create a load-sharing mirror
-      when: >-
-        not (incoming_prior.changed | default(false) | bool)
-        or (incoming_prior.added | default([]) | length == 0)
-      block:
-        - name: Stop the play
-          ansible.builtin.meta: end_play
-
-    - name: Use the load-sharing objects this deployment created
-      ansible.builtin.set_fact:
-        created_volume_names: >-
-          {{
-            incoming_prior.added
-            | selectattr('kind', 'equalto', 'volume')
-            | map(attribute='name')
-            | list
-          }}
-        created_relationship_names: >-
-          {{
-            incoming_prior.added
-            | selectattr('kind', 'equalto', 'relationship')
-            | map(attribute='name')
-            | list
-          }}
-        created_schedule_names: >-
-          {{
-            incoming_prior.added
-            | selectattr('kind', 'equalto', 'schedule')
-            | map(attribute='name')
-            | list
-          }}
-        svm_name_normalized: >-
-          {{
-            (
-              incoming_prior.added
-              | selectattr('svm', 'defined')
-              | map(attribute='svm')
-              | list
-              | first
-            ) | default(svm_name_normalized)
-          }}
-        job_name_normalized: >-
-          {{
-            (
-              incoming_prior.added
-              | selectattr('kind', 'equalto', 'schedule')
-              | map(attribute='name')
-              | list
-              | first
-            ) | default(job_name_normalized)
-          }}
 
     - name: Note that the SVM name is blank
       ansible.builtin.debug:
@@ -303,16 +212,6 @@
                   (mirror_volume_names | default([]))
                   + (mirror_relationships | default([]) | map(attribute='volume_name') | list)
                 ) | unique | list
-              }}
-
-        - name: Keep load-sharing objects this deployment created
-          ansible.builtin.set_fact:
-            mirror_volume_names: "{{ mirror_volume_names | default([]) | intersect(created_volume_names) | list }}"
-            mirror_relationships: >-
-              {{
-                mirror_relationships | default([])
-                | selectattr('volume_name', 'in', created_relationship_names)
-                | list
               }}
 
         - name: Show the load-sharing delete plan
@@ -565,7 +464,6 @@
         - job_name_normalized not in builtin_schedules
         - not (job_name_normalized is match('^pg-'))
         - not (schedule_still_used | default(false) | bool)
-        - job_name_normalized in created_schedule_names
 
     - name: Confirm the job schedule was deleted
       ansible.builtin.assert:
@@ -581,4 +479,3 @@
         - job_name_normalized not in builtin_schedules
         - not (job_name_normalized is match('^pg-'))
         - not (schedule_still_used | default(false) | bool)
-        - job_name_normalized in created_schedule_names

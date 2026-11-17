@@ -1,57 +1,20 @@
 ---
-# Undo of enable_cdp.yaml.
-# Restores the previous cdpd.enable value only when this grain changed it
-# and the cluster still has the value this deployment set. Safe to run twice.
-- name: Restore CDP
+# Undo of enable_cdp.yaml: turn CDP off. The launch sets cdpd.enable to on.
+# Safe to run twice.
+- name: Disable CDP
   hosts: localhost
   connection: local
   gather_facts: false
-  vars:
-    prior_config_text: >-
-      {{
-        ''
-        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
-        else (
-          prior_config
-          if prior_config is mapping
-          else (
-            prior_config | string | trim
-            | replace('&quot;', '"')
-            | replace('&#34;', '"')
-            | replace('&amp;', '&')
-            | replace('&#39;', "'")
-            | replace('&apos;', "'")
-            | replace('&lt;', '<')
-            | replace('&gt;', '>')
-          )
-        )
-      }}
+  module_defaults:
+    netapp.ontap.na_ontap_rest_cli:
+      hostname: "{{ ontap_hostname }}"
+      username: "{{ ontap_username }}"
+      password: "{{ ontap_password }}"
+      https: true
+      validate_certs: false
 
   tasks:
 
-    - name: Read the change recorded by the last launch
-      ansible.builtin.set_fact:
-        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
-      when: prior_config_text is mapping or prior_config_text | length > 0
-
-    - name: Use an empty record when this grain has no earlier change
-      ansible.builtin.set_fact:
-        incoming_prior:
-          changed: false
-      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
-
-    - name: Note that this deployment did not change CDP
-      ansible.builtin.debug:
-        msg: This deployment did not change CDP, so End leaves it unchanged.
-      when: not (incoming_prior.changed | default(false) | bool)
-
-    - name: Stop when CDP was not changed
-      when: not (incoming_prior.changed | default(false) | bool)
-      block:
-        - name: Stop the play
-          ansible.builtin.meta: end_play
-
-    # option-value is not a CLI key, so a private CLI GET omits it unless fields asks for it.
     - name: Read CDP
       netapp.ontap.na_ontap_rest_cli:
         command: options
@@ -59,11 +22,6 @@
         params:
           option_name: cdpd.enable
           fields: option-value
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
       register: cdp_show
 
     - name: Record the CDP setting
@@ -86,62 +44,40 @@
         fail_msg: >-
           Could not read cdpd.enable. The cluster returned '{{ live_value }}'.
 
-    - name: Note that CDP no longer has the value this deployment set
+    - name: Note that CDP is already off
       ansible.builtin.debug:
-        msg: >-
-          CDP is '{{ live_value }}', not '{{ incoming_prior.applied }}', so End
-          leaves it unchanged.
-      when: live_value != (incoming_prior.applied | string)
+        msg: CDP is already off, so End leaves it unchanged.
+      when: live_value == 'off'
 
-    - name: Stop when CDP was changed after the launch
-      when: live_value != (incoming_prior.applied | string)
+    - name: Stop when CDP is already off
+      when: live_value == 'off'
       block:
         - name: Stop the play
           ansible.builtin.meta: end_play
 
-    - name: Confirm the recorded CDP value can be restored
-      ansible.builtin.assert:
-        that:
-          - incoming_prior.previous | string in ['on', 'off']
-        fail_msg: >-
-          The recorded CDP value '{{ incoming_prior.previous | default('') }}'
-          cannot be restored.
-
-    - name: Restore CDP
+    - name: Turn CDP off
       netapp.ontap.na_ontap_rest_cli:
         command: options
         verb: PATCH
         params:
           option_name: cdpd.enable
         body:
-          option_value: "{{ incoming_prior.previous }}"
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
+          option_value: "off"
 
-    - name: Read CDP after the restore
+    - name: Read CDP after the change
       netapp.ontap.na_ontap_rest_cli:
         command: options
         verb: GET
         params:
           option_name: cdpd.enable
           fields: option-value
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
       register: cdp_check
 
-    - name: Confirm CDP was restored
+    - name: Confirm CDP is off
       ansible.builtin.assert:
         that:
-          - restored_value == (incoming_prior.previous | string)
-        fail_msg: >-
-          CDP is '{{ restored_value }}' after the restore. Expected
-          '{{ incoming_prior.previous }}'.
+          - restored_value == 'off'
+        fail_msg: "CDP is '{{ restored_value }}' after End. Expected off."
       vars:
         restored_value: >-
           {{

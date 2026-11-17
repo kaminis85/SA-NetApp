@@ -1,52 +1,35 @@
 ---
-# Undo of create_login_banner.yaml.
-# Restores the previous cluster login banner only when this grain changed it
-# and the cluster still has the banner this deployment set. Safe to run twice.
-- name: Restore the ONTAP cluster login banner
+# Undo of create_login_banner.yaml: clear the cluster login banner when it
+# still matches the banner from the form. Safe to run twice.
+- name: Clear the ONTAP cluster login banner
   hosts: localhost
   connection: local
   gather_facts: false
+  module_defaults:
+    netapp.ontap.na_ontap_rest_cli:
+      hostname: "{{ ontap_hostname }}"
+      username: "{{ ontap_username }}"
+      password: "{{ ontap_password }}"
+      https: true
+      validate_certs: false
+    netapp.ontap.na_ontap_login_messages:
+      hostname: "{{ ontap_hostname }}"
+      username: "{{ ontap_username }}"
+      password: "{{ ontap_password }}"
+      https: true
+      validate_certs: false
   vars:
-    prior_config_text: >-
-      {{
-        ''
-        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
-        else (
-          prior_config
-          if prior_config is mapping
-          else (
-            prior_config | string | trim
-            | replace('&quot;', '"')
-            | replace('&#34;', '"')
-            | replace('&amp;', '&')
-            | replace('&#39;', "'")
-            | replace('&apos;', "'")
-            | replace('&lt;', '<')
-            | replace('&gt;', '>')
-          )
-        )
-      }}
+    banner_requested: "{{ cluster_login_banner | default('') | string }}"
 
   tasks:
 
-    - name: Read the change recorded by the last launch
-      ansible.builtin.set_fact:
-        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
-      when: prior_config_text is mapping or prior_config_text | length > 0
-
-    - name: Use an empty record when this grain has no earlier change
-      ansible.builtin.set_fact:
-        incoming_prior:
-          changed: false
-      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
-
-    - name: Note that this deployment did not change the login banner
+    - name: Note that no login banner was named
       ansible.builtin.debug:
-        msg: This deployment did not change the cluster login banner, so End leaves it unchanged.
-      when: not (incoming_prior.changed | default(false) | bool)
+        msg: No cluster login banner was named, so End leaves it unchanged.
+      when: banner_requested | trim | length == 0
 
-    - name: Stop when the banner was not changed
-      when: not (incoming_prior.changed | default(false) | bool)
+    - name: Stop when no login banner was named
+      when: banner_requested | trim | length == 0
       block:
         - name: Stop the play
           ansible.builtin.meta: end_play
@@ -55,11 +38,6 @@
       netapp.ontap.na_ontap_rest_cli:
         command: security/login/banner
         verb: GET
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
       register: banner_show
 
     - name: Record the login banner
@@ -72,31 +50,21 @@
             ) | string
           }}
 
-    - name: Note that the banner no longer matches this deployment
+    - name: Note that the banner no longer matches the form
       ansible.builtin.debug:
-        msg: The cluster login banner no longer matches this deployment, so End leaves it unchanged.
-      when: live_value != (incoming_prior.applied | default('') | string)
+        msg: The cluster login banner no longer matches the form, so End leaves it unchanged.
+      when: live_value != banner_requested
 
-    - name: Stop when the banner was changed after the launch
-      when: live_value != (incoming_prior.applied | default('') | string)
+    - name: Stop when the banner no longer matches the form
+      when: live_value != banner_requested
       block:
         - name: Stop the play
           ansible.builtin.meta: end_play
 
-    - name: Restore the cluster login banner
+    - name: Clear the cluster login banner
       netapp.ontap.na_ontap_login_messages:
-        banner: "{{ incoming_prior.previous | default('') }}"
-        hostname: "{{ ontap_hostname }}"
-        username: "{{ ontap_username }}"
-        password: "{{ ontap_password }}"
-        https: true
-        validate_certs: false
+        banner: ""
 
-    - name: Report the restored login banner
+    - name: Report the cleared login banner
       ansible.builtin.debug:
-        msg: >-
-          {{
-            'Cleared the cluster login banner.'
-            if (incoming_prior.previous | default('') | string | length == 0)
-            else 'Restored the previous cluster login banner.'
-          }}
+        msg: Cleared the cluster login banner.

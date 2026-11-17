@@ -1,6 +1,6 @@
 ---
 # Undo of configure_broadcast_domains.yaml: delete the broadcast domains
-# this deployment created for in-band management, NFS, and the two iSCSI VLANs.
+# created for in-band management, NFS, and the two iSCSI VLANs.
 # VLAN interfaces are already gone, because that grain depends on this one.
 # The IPspace is deleted after this. Default and Cluster are never deleted.
 # Safe to run twice.
@@ -26,25 +26,6 @@
       use_python_keys: true
   vars:
     ipspace_name_normalized: "{{ ipspace_name | default('') | string | trim }}"
-    prior_config_text: >-
-      {{
-        ''
-        if (prior_config | default('') | string | trim) in ['', '<no value>', 'None', 'null', 'undefined']
-        else (
-          prior_config
-          if prior_config is mapping
-          else (
-            prior_config | string | trim
-            | replace('&quot;', '"')
-            | replace('&#34;', '"')
-            | replace('&amp;', '&')
-            | replace('&#39;', "'")
-            | replace('&apos;', "'")
-            | replace('&lt;', '<')
-            | replace('&gt;', '>')
-          )
-        )
-      }}
     network_inputs:
       - role: In-band management
         name: "{{ ib_mgmt_vlan_name | default('') | string | trim }}"
@@ -57,36 +38,20 @@
 
   tasks:
 
-    - name: Read the change recorded by the last launch
+    - name: Select networks that have a VLAN name
       ansible.builtin.set_fact:
-        incoming_prior: "{{ prior_config_text if prior_config_text is mapping else (prior_config_text | from_json) }}"
-      when: prior_config_text is mapping or prior_config_text | length > 0
+        vlan_plan: "{{ network_inputs | selectattr('name') | list }}"
 
-    - name: Use an empty record when this grain has no earlier change
-      ansible.builtin.set_fact:
-        incoming_prior:
-          changed: false
-      when: not (prior_config_text is mapping) and (prior_config_text | length == 0)
-
-    - name: Note that this deployment did not create a broadcast domain
+    - name: Note that no VLAN name was provided
       ansible.builtin.debug:
-        msg: This deployment did not create a broadcast domain, so End leaves them unchanged.
-      when: >-
-        not (incoming_prior.changed | default(false) | bool)
-        or (incoming_prior.added | default([]) | length == 0)
+        msg: No VLAN name was provided, so no broadcast domain was deleted.
+      when: vlan_plan | length == 0
 
-    - name: Stop when this deployment did not create a broadcast domain
-      when: >-
-        not (incoming_prior.changed | default(false) | bool)
-        or (incoming_prior.added | default([]) | length == 0)
+    - name: Stop when no VLAN name was provided
+      when: vlan_plan | length == 0
       block:
         - name: Stop the play
           ansible.builtin.meta: end_play
-
-    - name: Use the broadcast domains this deployment created
-      ansible.builtin.set_fact:
-        vlan_plan: "{{ incoming_prior.added }}"
-        ipspace_name_normalized: "{{ (incoming_prior.added | first).ipspace }}"
 
     - name: Validate the IPspace name
       ansible.builtin.assert:
@@ -116,7 +81,7 @@
       netapp.ontap.na_ontap_broadcast_domain:
         state: absent
         name: "{{ item.name }}"
-        ipspace: "{{ item.ipspace }}"
+        ipspace: "{{ ipspace_name_normalized }}"
       loop: "{{ vlan_plan }}"
       loop_control:
         label: "{{ item.role }} {{ item.name }}"
@@ -139,6 +104,8 @@
       netapp.ontap.na_ontap_rest_info:
         gather_subset:
           - network/ethernet/broadcast-domains
+        parameters:
+          ipspace.name: "{{ ipspace_name_normalized }}"
         fields:
           - name
           - ipspace
