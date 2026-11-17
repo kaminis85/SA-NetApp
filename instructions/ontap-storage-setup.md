@@ -53,7 +53,7 @@ Cluster name is used by the location, timezone, and HTTP tasks. It must exactly 
 | SVM name and any of audit_log_volume_name, audit_log_volume_size_gb, or audit_log_aggregate | Create the audit log FlexVol, refresh a load-sharing mirror set when one already exists, then enable SVM auditing. This task runs after the SVM task. All three fields are required. The name is the volume name, for example `audit_log`. `audit_log_volume_size_gb` is the size in gigabytes, for example `50`. The aggregate must be one of the aggregate names from the node configuration rows. The volume is mounted at `/<volume name>`. Leave all three blank to skip the volume, the mirror refresh, and auditing. Set any of them and leave one blank and this task fails. A SnapMirror relationship is not required. Creating the volume with a junction path updates an existing load-sharing set automatically. `snapmirror update-ls-set` runs only when a set is already present |
 | DNS domain and DNS servers | Configure cluster DNS |
 | NTP servers | Configure NTP |
-| Cluster name and timezone | Set the timezone |
+| Cluster name and timezone | Set the timezone. End leaves the timezone and the cluster name unchanged |
 | Cluster name | Disable HTTP cluster management. This removes management-http from the default-management service policy on that cluster. End leaves HTTP removed. Leave the cluster name blank to skip this task |
 | AutoSupport mail settings | Configure AutoSupport on the nodes discovered from the cluster |
 | Legacy license keys or NLF contents | Add licenses. End leaves those licenses installed |
@@ -72,7 +72,6 @@ Each row shows what End does for that task. Every teardown can run again safely.
 | Create data aggregates | Deletes the data aggregates named in the node rows after the volumes on them are gone. Root aggregates (`aggr0` and `aggr0_*`) are never deleted |
 | Configure DNS | Removes cluster DNS when the DNS servers and domain still match the form |
 | Configure NTP | Deletes the NTP servers named on the form that are still present |
-| Set timezone | Leaves the timezone and the cluster name unchanged |
 | Configure AutoSupport | Removes the AutoSupport mail settings on the nodes where the mail hosts, from address, and to addresses still match the form |
 | Configure FIPS | When the dropdown is true and the cluster still has FIPS enabled, sets SSL FIPS mode to false. When the dropdown is false, End leaves FIPS unchanged |
 | Configure SNMP | Removes the SNMP community, SNMPv3 user, and traphost named on the form, and clears the contact and location when they were set |
@@ -93,4 +92,4 @@ Each row shows what End does for that task. Every teardown can run again safely.
 | NFS LIFs | Deletes the NFS LIFs |
 | iSCSI LIFs | Deletes the iSCSI LIFs on fabric A and fabric B |
 
-Pre-validation, cluster-management auto-revert, spare-disk zeroing, delete default broadcast domains, cluster HA, CDP, LLDP, storage failover, licenses, flow control, HTTP cluster management, discover disk class, and post-config validation have no teardown. Configure FIPS has a teardown only when FIPS is true.
+Pre-validation, cluster-management auto-revert, spare-disk zeroing, delete default broadcast domains, cluster HA, CDP, LLDP, storage failover, timezone, licenses, flow control, HTTP cluster management, discover disk class, and post-config validation have no teardown. Configure FIPS has a teardown only when FIPS is true.

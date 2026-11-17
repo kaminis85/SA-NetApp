@@ -945,20 +945,6 @@ grains:
         - ontap_password: '{{ .inputs.ontap_password }}'
         - cluster_name: '{{ .inputs.cluster_name }}'
         - time_zone: '{{ .inputs.time_zone }}'
-      # Runs when the deployment is ended. Leaves the timezone in place. The previous timezone is not on the form.
-      on-destroy:
-        source:
-          store: SA-NetApp
-          path: assets/ansible/netapp-ontap/teardown_set_timezone.yaml
-        agent:
-          name: '{{ .inputs.agent }}'
-        inputs:
-          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
-          - ontap_username: '{{ .inputs.ontap_username }}'
-          - ontap_password: '{{ .inputs.ontap_password }}'
-          - cluster_name: '{{ .inputs.cluster_name }}'
-          - time_zone: '{{ .inputs.time_zone }}'
-
 
   configure_autosupport:
     kind: ansible
