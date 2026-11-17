@@ -723,7 +723,7 @@ grains:
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
         - node_specs: '{{ .inputs.node_specs }}'
-      # Runs when the deployment is ended. Disables a service-processor interface that still has the address from the form.
+      # Runs when the deployment is ended. Sets a service-processor interface that still has the address from the form back to DHCP.
       on-destroy:
         source:
           store: SA-NetApp

@@ -1,7 +1,8 @@
 ---
-# Undo of configure_sp_network.yaml: disable the service-processor IPv4
-# interface when it still has the address from the form. The address is left
-# in place. Safe to run twice.
+# Undo of configure_sp_network.yaml: set the service-processor IPv4 config back
+# to DHCP when it still has the address from the form. Disabling IPv4 fails on
+# these nodes (ONTAP error 13631588), so DHCP is used instead. The static
+# address is released. Safe to run twice.
 - name: Disable ONTAP service-processor network interfaces
   hosts: localhost
   connection: local
@@ -100,7 +101,7 @@
         - name: Stop the play
           ansible.builtin.meta: end_play
 
-    - name: Disable the service-processor IPv4 interface
+    - name: Set the service-processor IPv4 configuration back to DHCP
       netapp.ontap.na_ontap_rest_cli:
         command: system/service-processor/network
         verb: PATCH
@@ -108,11 +109,11 @@
           node: "{{ item }}"
           address-family: IPv4
         body:
-          enable: "false"
+          dhcp: v4
       loop: "{{ nodes_to_disable }}"
       loop_control:
         label: "{{ item }}"
 
     - name: Report the nodes
       ansible.builtin.debug:
-        msg: "Disabled the service-processor IPv4 interface on {{ nodes_to_disable | join(', ') }}."
+        msg: "Set the service-processor IPv4 configuration to DHCP on {{ nodes_to_disable | join(', ') }}."

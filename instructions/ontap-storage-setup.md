@@ -68,7 +68,7 @@ Each row shows what End does for that task. Every teardown can run again safely.
 | Task | What End does |
 | --- | --- |
 | Update cluster location | Clears the cluster location when it still matches the form. The cluster name is not changed |
-| Configure SP network | Disables the service-processor IPv4 interface on each node whose address still matches the form. The address stays in place |
+| Configure SP network | Sets the service-processor IPv4 configuration back to DHCP on each node whose address still matches the form. The static address is released, and the SP takes whatever address DHCP gives it. Disabling IPv4 is not used because ONTAP rejects it (error 13631588) on these nodes |
 | Create data aggregates | Deletes the data aggregates named in the node rows after the volumes on them are gone. Root aggregates (`aggr0` and `aggr0_*`) are never deleted |
 | Configure DNS | Removes cluster DNS when the DNS servers and domain still match the form |
 | Configure NTP | Deletes the NTP servers named on the form that are still present |
