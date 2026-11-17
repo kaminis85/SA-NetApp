@@ -1052,7 +1052,7 @@ grains:
         - snmp_priv_protocol: '{{ .inputs.snmp_priv_protocol }}'
         - snmp_priv_protocol_fips: '{{ .inputs.snmp_priv_protocol_fips }}'
         - snmp_priv_password: '{{ .inputs.snmp_priv_password }}'
-      # Runs when the deployment is ended. Removes the SNMP users, traphost, contact, and location named on the form.
+      # Runs when the deployment is ended. Removes the SNMP users, traphost, contact, and location named on the form, sets the SNMP init value to 0, and disables SNMP.
       on-destroy:
         source:
           store: SA-NetApp

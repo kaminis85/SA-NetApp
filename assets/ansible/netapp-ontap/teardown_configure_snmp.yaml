@@ -1,7 +1,8 @@
 ---
 # Undo of configure_snmp.yaml: remove the SNMP community, SNMPv3 user, and
-# traphost named on the form, and clear the contact and location when those
-# fields were set. Safe to run twice.
+# traphost named on the form, clear the contact and location when those
+# fields were set, set the SNMP init value back to 0, and disable SNMP.
+# Safe to run twice.
 - name: Remove ONTAP SNMP settings named on the form
   hosts: localhost
   connection: local
@@ -15,6 +16,12 @@
       validate_certs: false
       use_rest: always
     netapp.ontap.na_ontap_snmp_traphosts:
+      hostname: "{{ ontap_hostname }}"
+      username: "{{ ontap_username }}"
+      password: "{{ ontap_password }}"
+      https: true
+      validate_certs: false
+    netapp.ontap.na_ontap_snmp_config:
       hostname: "{{ ontap_hostname }}"
       username: "{{ ontap_username }}"
       password: "{{ ontap_password }}"
@@ -126,6 +133,18 @@
           location: ""
       when: location_requested | length > 0
 
+    - name: Set the SNMP init value to 0
+      netapp.ontap.na_ontap_rest_cli:
+        command: system/snmp/init
+        verb: PATCH
+        body:
+          init: "0"
+
+    - name: Disable SNMP
+      netapp.ontap.na_ontap_snmp_config:
+        state: present
+        enabled: false
+
     - name: Report the SNMP cleanup
       ansible.builtin.debug:
-        msg: Removed the SNMP users, traphost, contact, and location named on the form.
+        msg: Removed the SNMP users, traphost, contact, and location named on the form, set the SNMP init value to 0, and disabled SNMP.
