@@ -6,12 +6,14 @@
   connection: local
   gather_facts: false
   module_defaults:
-    netapp.ontap.na_ontap_rest_cli:
+    netapp.ontap.na_ontap_rest_info:
       hostname: "{{ ontap_hostname }}"
       username: "{{ ontap_username }}"
       password: "{{ ontap_password }}"
       https: true
       validate_certs: false
+      use_rest: always
+      use_python_keys: true
     netapp.ontap.na_ontap_login_messages:
       hostname: "{{ ontap_hostname }}"
       username: "{{ ontap_username }}"
@@ -35,24 +37,32 @@
           ansible.builtin.meta: end_play
 
     - name: Read the cluster login banner
-      netapp.ontap.na_ontap_rest_cli:
-        command: security/login/banner
-        verb: GET
-      register: banner_show
+      netapp.ontap.na_ontap_rest_info:
+        gather_subset:
+          - security/login/messages
+        parameters:
+          scope: cluster
+        fields:
+          - banner
+          - scope
+      register: banner_info
 
+    # ONTAP returns the banner with a trailing newline when the form did not
+    # include one. Compare the same way na_ontap_login_messages does.
     - name: Record the login banner
       ansible.builtin.set_fact:
-        live_value: >-
-          {{
-            (
-              (banner_show.msg.records | default([banner_show.msg | default({})]) | first | default({})).message
-              | default('')
-            ) | string
-          }}
+        live_value: "{{ live_banner }}"
+      vars:
+        banner_records: "{{ (banner_info.ontap_info.security_login_messages | default({})).records | default([]) }}"
+        banner_record: "{{ banner_records | first | default({}) }}"
+        banner_raw: "{{ banner_record.banner | default('') | string }}"
+        live_banner: "{{ banner_raw if (banner_requested[-1:] == '\n') else banner_raw.rstrip('\n') }}"
 
     - name: Note that the banner no longer matches the form
       ansible.builtin.debug:
-        msg: The cluster login banner no longer matches the form, so End leaves it unchanged.
+        msg: >-
+          The cluster login banner is {{ live_value | to_json }}, not
+          {{ banner_requested | to_json }}, so End leaves it unchanged.
       when: live_value != banner_requested
 
     - name: Stop when the banner no longer matches the form

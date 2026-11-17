@@ -8,12 +8,14 @@
   connection: local
   gather_facts: false
   module_defaults:
-    netapp.ontap.na_ontap_rest_cli:
+    netapp.ontap.na_ontap_rest_info:
       hostname: "{{ ontap_hostname }}"
       username: "{{ ontap_username }}"
       password: "{{ ontap_password }}"
       https: true
       validate_certs: false
+      use_rest: always
+      use_python_keys: true
     netapp.ontap.na_ontap_login_messages:
       hostname: "{{ ontap_hostname }}"
       username: "{{ ontap_username }}"
@@ -23,7 +25,7 @@
       use_rest: always
   vars:
     svm_name_normalized: "{{ svm_name | default('') | string | trim }}"
-    banner_requested: "{{ svm_login_banner | default('') | string }}"
+    banner_requested: "{{ svm_login_banner | default('') | string | trim }}"
 
   tasks:
 
@@ -48,32 +50,35 @@
           41 characters.
 
     - name: Read the SVM login banner
-      netapp.ontap.na_ontap_rest_cli:
-        command: security/login/banner
-        verb: GET
-        params:
-          vserver: "{{ svm_name_normalized }}"
-      register: banner_show
+      netapp.ontap.na_ontap_rest_info:
+        gather_subset:
+          - security/login/messages
+        parameters:
+          scope: svm
+          svm.name: "{{ svm_name_normalized }}"
+        fields:
+          - banner
+          - scope
+          - svm.name
+      register: banner_info
 
+    # ONTAP returns the banner with a trailing newline when the form did not
+    # include one. Compare the same way na_ontap_login_messages does.
+    # The create task trims the form text before it writes the banner.
     - name: Record the SVM login banner
       ansible.builtin.set_fact:
-        live_value: "{{ (matched_banner.message | default('')) | string }}"
+        live_value: "{{ live_banner }}"
       vars:
-        banner_records: "{{ banner_show.msg.records | default([banner_show.msg | default({})]) }}"
-        matched_banner: >-
-          {{
-            (
-              banner_records
-              | selectattr('vserver', 'defined')
-              | selectattr('vserver', 'equalto', svm_name_normalized)
-              | list
-              | first
-            ) | default(banner_records | first | default({}))
-          }}
+        banner_records: "{{ (banner_info.ontap_info.security_login_messages | default({})).records | default([]) }}"
+        banner_record: "{{ banner_records | first | default({}) }}"
+        banner_raw: "{{ banner_record.banner | default('') | string }}"
+        live_banner: "{{ banner_raw if (banner_requested[-1:] == '\n') else banner_raw.rstrip('\n') }}"
 
     - name: Note that the SVM banner no longer matches the form
       ansible.builtin.debug:
-        msg: The SVM login banner no longer matches the form, so End leaves it unchanged.
+        msg: >-
+          The SVM login banner is {{ live_value | to_json }}, not
+          {{ banner_requested | to_json }}, so End leaves it unchanged.
       when: live_value != banner_requested
 
     - name: Stop when the SVM banner no longer matches the form
