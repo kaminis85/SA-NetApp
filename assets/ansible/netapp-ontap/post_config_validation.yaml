@@ -60,7 +60,7 @@
 
     - name: Pause 30 seconds after sending AutoSupport message
       ansible.builtin.pause:
-        seconds: 30
+        seconds: 1
 
     - name: Wait for AutoSupport collection and transmission to finish
       netapp.ontap.na_ontap_rest_info:
@@ -85,8 +85,8 @@
       until:
         - asup_records | length > 0
         - latest_items | map(attribute='state') | select('in', ['collection_failed', 'sent_successful', 'transmission_failed', 'ondemand_ignore']) | list | length == latest_items | length
-      retries: 30
-      delay: 10
+      retries: 1
+      delay: 1
       ignore_errors: true
 
     - name: Print the Auto support test status
