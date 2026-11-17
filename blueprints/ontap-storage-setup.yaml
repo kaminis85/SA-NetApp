@@ -693,17 +693,6 @@ grains:
         - ontap_hostname: '{{ .inputs.ontap_hostname }}'
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
-      # Runs when the deployment is ended. Turns auto-revert off on the cluster management interface.
-      on-destroy:
-        source:
-          store: SA-NetApp
-          path: assets/ansible/netapp-ontap/teardown_ensure_cluster_mgmt_auto_revert.yaml
-        agent:
-          name: '{{ .inputs.agent }}'
-        inputs:
-          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
-          - ontap_username: '{{ .inputs.ontap_username }}'
-          - ontap_password: '{{ .inputs.ontap_password }}'
 
   delete_default_broadcast_domains:
     kind: ansible
@@ -809,17 +798,6 @@ grains:
         - ontap_hostname: '{{ .inputs.ontap_hostname }}'
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
-      # Runs when the deployment is ended. Reports spare-disk zeroing. That change cannot be reversed.
-      on-destroy:
-        source:
-          store: SA-NetApp
-          path: assets/ansible/netapp-ontap/teardown_zero_spare_disks.yaml
-        agent:
-          name: '{{ .inputs.agent }}'
-        inputs:
-          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
-          - ontap_username: '{{ .inputs.ontap_username }}'
-          - ontap_password: '{{ .inputs.ontap_password }}'
 
   ensure_cluster_ha:
     kind: ansible
@@ -834,17 +812,6 @@ grains:
         - ontap_hostname: '{{ .inputs.ontap_hostname }}'
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
-      # Runs when the deployment is ended. Disables cluster HA on a two-node cluster.
-      on-destroy:
-        source:
-          store: SA-NetApp
-          path: assets/ansible/netapp-ontap/teardown_ensure_cluster_ha.yaml
-        agent:
-          name: '{{ .inputs.agent }}'
-        inputs:
-          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
-          - ontap_username: '{{ .inputs.ontap_username }}'
-          - ontap_password: '{{ .inputs.ontap_password }}'
 
   disable_flow_control:
     kind: ansible
@@ -861,18 +828,6 @@ grains:
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
         - node_specs: '{{ .inputs.node_specs }}'
-      # Runs when the deployment is ended. Sets data-port flow control back to full when it is none.
-      on-destroy:
-        source:
-          store: SA-NetApp
-          path: assets/ansible/netapp-ontap/teardown_disable_flow_control.yaml
-        agent:
-          name: '{{ .inputs.agent }}'
-        inputs:
-          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
-          - ontap_username: '{{ .inputs.ontap_username }}'
-          - ontap_password: '{{ .inputs.ontap_password }}'
-          - node_specs: '{{ .inputs.node_specs }}'
 
   enable_cdp:
     kind: ansible
@@ -887,17 +842,6 @@ grains:
         - ontap_hostname: '{{ .inputs.ontap_hostname }}'
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
-      # Runs when the deployment is ended. Turns CDP off.
-      on-destroy:
-        source:
-          store: SA-NetApp
-          path: assets/ansible/netapp-ontap/teardown_enable_cdp.yaml
-        agent:
-          name: '{{ .inputs.agent }}'
-        inputs:
-          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
-          - ontap_username: '{{ .inputs.ontap_username }}'
-          - ontap_password: '{{ .inputs.ontap_password }}'
 
   enable_lldp:
     kind: ansible
@@ -912,17 +856,6 @@ grains:
         - ontap_hostname: '{{ .inputs.ontap_hostname }}'
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
-      # Runs when the deployment is ended. Turns LLDP off.
-      on-destroy:
-        source:
-          store: SA-NetApp
-          path: assets/ansible/netapp-ontap/teardown_enable_lldp.yaml
-        agent:
-          name: '{{ .inputs.agent }}'
-        inputs:
-          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
-          - ontap_username: '{{ .inputs.ontap_username }}'
-          - ontap_password: '{{ .inputs.ontap_password }}'
 
   configure_dns:
     kind: ansible
@@ -995,17 +928,6 @@ grains:
         - ontap_hostname: '{{ .inputs.ontap_hostname }}'
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
-      # Runs when the deployment is ended. Disables storage-failover takeover.
-      on-destroy:
-        source:
-          store: SA-NetApp
-          path: assets/ansible/netapp-ontap/teardown_enable_storage_failover.yaml
-        agent:
-          name: '{{ .inputs.agent }}'
-        inputs:
-          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
-          - ontap_username: '{{ .inputs.ontap_username }}'
-          - ontap_password: '{{ .inputs.ontap_password }}'
 
   set_timezone:
     kind: ansible
@@ -1088,19 +1010,6 @@ grains:
         - ontap_password: '{{ .inputs.ontap_password }}'
         - legacy_license_keys: '{{ .inputs.legacy_license_keys }}'
         - nlf_license_content: '{{ .inputs.nlf_license_content }}'
-      # Runs when the deployment is ended. Removes license packages named in the NetApp license file.
-      on-destroy:
-        source:
-          store: SA-NetApp
-          path: assets/ansible/netapp-ontap/teardown_add_licenses.yaml
-        agent:
-          name: '{{ .inputs.agent }}'
-        inputs:
-          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
-          - ontap_username: '{{ .inputs.ontap_username }}'
-          - ontap_password: '{{ .inputs.ontap_password }}'
-          - legacy_license_keys: '{{ .inputs.legacy_license_keys }}'
-          - nlf_license_content: '{{ .inputs.nlf_license_content }}'
 
   configure_fips:
     kind: ansible
@@ -1116,8 +1025,10 @@ grains:
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
         - is_fips_enabled: '{{ .inputs.is_fips_enabled }}'
-      # Runs when the deployment is ended. Sets SSL FIPS mode to the opposite of the form when the cluster still matches it.
+      # Runs when the deployment is ended and the form set FIPS to true.
+      # Sets SSL FIPS mode back to false when the cluster still has it enabled.
       on-destroy:
+        when: '{% if .inputs.is_fips_enabled == "true" %}true{% else %}false{% endif %}'
         source:
           store: SA-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_fips.yaml
@@ -1222,18 +1133,6 @@ grains:
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
         - cluster_name: '{{ .inputs.cluster_name }}'
-      # Runs when the deployment is ended. Adds HTTP back to the default-management service policy.
-      on-destroy:
-        source:
-          store: SA-NetApp
-          path: assets/ansible/netapp-ontap/teardown_disable_http_cluster_management.yaml
-        agent:
-          name: '{{ .inputs.agent }}'
-        inputs:
-          - ontap_hostname: '{{ .inputs.ontap_hostname }}'
-          - ontap_username: '{{ .inputs.ontap_username }}'
-          - ontap_password: '{{ .inputs.ontap_password }}'
-          - cluster_name: '{{ .inputs.cluster_name }}'
 
   configure_ifgrp:
     kind: ansible
