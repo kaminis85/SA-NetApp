@@ -101,6 +101,8 @@
         - name: Stop the play
           ansible.builtin.meta: end_play
 
+    # ONTAP rejects this PATCH without enable (target enable, code 2).
+    # Leave IPv4 enabled. Disabling it fails on these nodes (error 13631588).
     - name: Set the service-processor IPv4 configuration back to DHCP
       netapp.ontap.na_ontap_rest_cli:
         command: system/service-processor/network
@@ -109,6 +111,7 @@
           node: "{{ item }}"
           address-family: IPv4
         body:
+          enable: "true"
           dhcp: v4
       loop: "{{ nodes_to_disable }}"
       loop_control:
