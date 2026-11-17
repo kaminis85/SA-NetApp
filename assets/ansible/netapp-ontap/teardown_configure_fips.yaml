@@ -34,51 +34,55 @@
         - name: Stop the play
           ansible.builtin.meta: end_play
 
+    # Same query as: security config show -interface SSL -fields is-fips-enabled
     - name: Read SSL FIPS mode
       netapp.ontap.na_ontap_rest_cli:
         command: security/config
         verb: GET
         params:
           privilege_level: advanced
-          fields: interface,is-fips-enabled
+          interface: SSL
+          fields: is-fips-enabled
       register: fips_show
 
+    # Store enabled/disabled. set_fact turns the strings true and false into
+    # booleans, and the confirm task then rejects a value the cluster did return.
     - name: Record SSL FIPS mode
       ansible.builtin.set_fact:
-        live_value: "{{ 'true' if (fips_flag | bool) else 'false' }}"
-        restore_value: "{{ 'false' if (fips_requested == 'true') else 'true' }}"
-      vars:
-        fips_records: "{{ fips_show.msg.records | default([fips_show.msg | default({})]) }}"
-        ssl_record: >-
+        live_value: >-
           {{
-            fips_records
-            | selectattr('interface', 'defined')
-            | selectattr('interface', 'equalto', 'ssl')
-            | list
-            | first
-            | default(fips_records | first | default({}))
+            'enabled' if ((fips_text | string | lower) == 'true')
+            else (
+              'disabled' if ((fips_text | string | lower) == 'false')
+              else (fips_text | string)
+            )
           }}
-        fips_flag: >-
+        restore_value: "{{ 'disabled' if (fips_requested == 'true') else 'enabled' }}"
+      vars:
+        ssl_record: "{{ (fips_show.msg.records | default([fips_show.msg | default({})])) | first | default({}) }}"
+        fips_text: >-
           {{
-            ssl_record.is_fips_enabled
-            | default(ssl_record['is-fips-enabled'] | default(''))
+            (
+              ssl_record.is_fips_enabled
+              | default(ssl_record['is-fips-enabled'] | default(''))
+            ) | string | trim | lower
           }}
 
     - name: Confirm SSL FIPS mode was read
       ansible.builtin.assert:
         that:
-          - live_value in ['true', 'false']
+          - live_value in ['enabled', 'disabled']
         fail_msg: "Could not read SSL FIPS mode. The cluster returned '{{ live_value }}'."
 
     - name: Note that FIPS no longer matches the form
       ansible.builtin.debug:
         msg: >-
-          SSL FIPS mode is {{ live_value }}, not {{ fips_requested }}, so End
-          leaves it unchanged.
-      when: live_value != fips_requested
+          SSL FIPS mode is {{ 'true' if (live_value == 'enabled') else 'false' }},
+          not {{ fips_requested }}, so End leaves it unchanged.
+      when: (live_value == 'enabled') != (fips_requested == 'true')
 
     - name: Stop when FIPS no longer matches the form
-      when: live_value != fips_requested
+      when: (live_value == 'enabled') != (fips_requested == 'true')
       block:
         - name: Stop the play
           ansible.builtin.meta: end_play
@@ -86,8 +90,8 @@
     - name: Set SSL FIPS mode
       netapp.ontap.na_ontap_security_config:
         name: ssl
-        is_fips_enabled: "{{ restore_value | bool }}"
+        is_fips_enabled: "{{ restore_value == 'enabled' }}"
 
     - name: Report the SSL FIPS mode
       ansible.builtin.debug:
-        msg: "SSL FIPS mode is now {{ restore_value }}."
+        msg: "SSL FIPS mode is now {{ 'true' if (restore_value == 'enabled') else 'false' }}."
