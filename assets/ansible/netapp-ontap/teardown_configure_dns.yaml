@@ -38,14 +38,6 @@
         - name: Stop the play
           ansible.builtin.meta: end_play
 
-    - name: Read the cluster name
-      netapp.ontap.na_ontap_rest_info:
-        gather_subset:
-          - cluster
-        fields:
-          - name
-      register: cluster_info
-
     - name: Read cluster DNS
       netapp.ontap.na_ontap_rest_info:
         gather_subset:
@@ -60,17 +52,9 @@
 
     - name: Record cluster DNS
       ansible.builtin.set_fact:
-        cluster_name_live: "{{ cluster_record.name | default('') | string | trim }}"
         dns_servers_live: "{{ dns_servers_live }}"
         dns_domains_live: "{{ dns_domains_live }}"
       vars:
-        cluster_body: "{{ cluster_info.ontap_info.cluster | default({}) }}"
-        cluster_record: >-
-          {{
-            cluster_body
-            if (cluster_body.name | default('') | string | length > 0)
-            else ((cluster_body.records | default([{}])) | first | default({}))
-          }}
         dns_records: "{{ (dns_info.ontap_info.name_services_dns | default({})).records | default([]) }}"
         dns_record: "{{ dns_records | first | default({}) }}"
         dns_servers_live: >-
@@ -92,12 +76,6 @@
             | list
           }}
 
-    - name: Confirm the cluster name was read
-      ansible.builtin.assert:
-        that:
-          - cluster_name_live | length > 0
-        fail_msg: The cluster did not return its name.
-
     - name: Note that cluster DNS no longer matches the form
       ansible.builtin.debug:
         msg: Cluster DNS no longer matches the form, so End leaves it unchanged.
@@ -116,8 +94,7 @@
     - name: Delete cluster DNS
       netapp.ontap.na_ontap_dns:
         state: absent
-        vserver: "{{ cluster_name_live }}"
 
     - name: Report the deleted DNS configuration
       ansible.builtin.debug:
-        msg: "Deleted DNS on {{ cluster_name_live }}."
+        msg: "Deleted cluster DNS servers {{ dns_servers_live | join(', ') }}."
