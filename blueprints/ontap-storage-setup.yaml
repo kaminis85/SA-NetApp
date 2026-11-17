@@ -1,3 +1,12 @@
+spec_version: 2
+description: >-
+  Set up an ONTAP cluster and an optional SVM. Only the cluster address,
+  username, and password are required. Fill in a section to run that task,
+  or leave it blank to skip it. SSL FIPS is set on every launch and defaults
+  to false. Fibre Channel, NVMe, and S3 are not included. Open the
+  instructions for which fields start or skip each task.
+
+instructions:
   source:
     store: SA-NetApp
     path: instructions/ontap-storage-setup.md
