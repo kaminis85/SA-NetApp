@@ -38,7 +38,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
 
@@ -63,10 +72,12 @@
         or (incoming_prior.added | default([]) | length == 0)
 
     - name: Stop when this deployment did not create a data aggregate
-      ansible.builtin.meta: end_play
       when: >-
         not (incoming_prior.changed | default(false) | bool)
         or (incoming_prior.added | default([]) | length == 0)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Use the aggregates this deployment created
       ansible.builtin.set_fact:

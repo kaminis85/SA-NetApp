@@ -14,7 +14,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
 
@@ -39,8 +48,10 @@
       when: not (incoming_prior.changed | default(false) | bool)
 
     - name: Stop when HTTP cluster management was not changed
-      ansible.builtin.meta: end_play
       when: not (incoming_prior.changed | default(false) | bool)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Read the cluster name
       netapp.ontap.na_ontap_rest_info:
@@ -135,8 +146,10 @@
       when: http_management_enabled | bool
 
     - name: Stop when HTTP cluster management is already enabled
-      ansible.builtin.meta: end_play
       when: http_management_enabled | bool
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Note that HTTP was already absent before this deployment
       ansible.builtin.debug:
@@ -144,8 +157,10 @@
       when: (incoming_prior.previous | string) != 'present'
 
     - name: Stop when this deployment did not remove HTTP
-      ansible.builtin.meta: end_play
       when: (incoming_prior.previous | string) != 'present'
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Add HTTP back to the default-management service policy
       netapp.ontap.na_ontap_rest_cli:

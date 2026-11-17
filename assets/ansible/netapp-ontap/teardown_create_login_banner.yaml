@@ -14,7 +14,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
 
@@ -37,8 +46,10 @@
       when: not (incoming_prior.changed | default(false) | bool)
 
     - name: Stop when the banner was not changed
-      ansible.builtin.meta: end_play
       when: not (incoming_prior.changed | default(false) | bool)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Read the cluster login banner
       netapp.ontap.na_ontap_rest_cli:
@@ -67,8 +78,10 @@
       when: live_value != (incoming_prior.applied | default('') | string)
 
     - name: Stop when the banner was changed after the launch
-      ansible.builtin.meta: end_play
       when: live_value != (incoming_prior.applied | default('') | string)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Restore the cluster login banner
       netapp.ontap.na_ontap_login_messages:

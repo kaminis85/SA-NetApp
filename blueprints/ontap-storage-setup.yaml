@@ -680,7 +680,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.update_cluster_location.outputs.prior_config %}{{ .grains.update_cluster_location.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.update_cluster_location.outputs.prior_config }}'
 
   ensure_cluster_mgmt_auto_revert:
     kind: ansible
@@ -709,7 +709,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.ensure_cluster_mgmt_auto_revert.outputs.prior_config %}{{ .grains.ensure_cluster_mgmt_auto_revert.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.ensure_cluster_mgmt_auto_revert.outputs.prior_config }}'
 
   delete_default_broadcast_domains:
     kind: ansible
@@ -754,7 +754,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.configure_sp_network.outputs.prior_config %}{{ .grains.configure_sp_network.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_sp_network.outputs.prior_config }}'
 
   discover_disk_class:
     kind: ansible
@@ -806,7 +806,7 @@ grains:
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
           - node_specs: '{{ .inputs.node_specs }}'
-          - prior_config: '{% if .grains.create_data_aggregates.outputs.prior_config %}{{ .grains.create_data_aggregates.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.create_data_aggregates.outputs.prior_config }}'
 
   zero_spare_disks:
     kind: ansible
@@ -835,7 +835,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.zero_spare_disks.outputs.prior_config %}{{ .grains.zero_spare_disks.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.zero_spare_disks.outputs.prior_config }}'
 
   ensure_cluster_ha:
     kind: ansible
@@ -864,7 +864,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.ensure_cluster_ha.outputs.prior_config %}{{ .grains.ensure_cluster_ha.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.ensure_cluster_ha.outputs.prior_config }}'
 
   disable_flow_control:
     kind: ansible
@@ -895,7 +895,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.disable_flow_control.outputs.prior_config %}{{ .grains.disable_flow_control.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.disable_flow_control.outputs.prior_config }}'
 
   enable_cdp:
     kind: ansible
@@ -924,7 +924,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.enable_cdp.outputs.prior_config %}{{ .grains.enable_cdp.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.enable_cdp.outputs.prior_config }}'
 
   enable_lldp:
     kind: ansible
@@ -953,7 +953,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.enable_lldp.outputs.prior_config %}{{ .grains.enable_lldp.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.enable_lldp.outputs.prior_config }}'
 
   configure_dns:
     kind: ansible
@@ -985,7 +985,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.configure_dns.outputs.prior_config %}{{ .grains.configure_dns.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_dns.outputs.prior_config }}'
 
   configure_ntp:
     kind: ansible
@@ -1016,7 +1016,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.configure_ntp.outputs.prior_config %}{{ .grains.configure_ntp.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_ntp.outputs.prior_config }}'
 
   enable_storage_failover:
     kind: ansible
@@ -1045,7 +1045,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.enable_storage_failover.outputs.prior_config %}{{ .grains.enable_storage_failover.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.enable_storage_failover.outputs.prior_config }}'
 
   set_timezone:
     kind: ansible
@@ -1077,7 +1077,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.set_timezone.outputs.prior_config %}{{ .grains.set_timezone.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.set_timezone.outputs.prior_config }}'
 
 
   configure_autosupport:
@@ -1112,7 +1112,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.configure_autosupport.outputs.prior_config %}{{ .grains.configure_autosupport.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_autosupport.outputs.prior_config }}'
 
   add_licenses:
     kind: ansible
@@ -1144,7 +1144,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.add_licenses.outputs.prior_config %}{{ .grains.add_licenses.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.add_licenses.outputs.prior_config }}'
 
   configure_fips:
     kind: ansible
@@ -1174,7 +1174,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.configure_fips.outputs.prior_config %}{{ .grains.configure_fips.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_fips.outputs.prior_config }}'
 
   configure_snmp:
     kind: ansible
@@ -1216,7 +1216,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.configure_snmp.outputs.prior_config %}{{ .grains.configure_snmp.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_snmp.outputs.prior_config }}'
 
   create_login_banner:
     kind: ansible
@@ -1247,7 +1247,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.create_login_banner.outputs.prior_config %}{{ .grains.create_login_banner.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.create_login_banner.outputs.prior_config }}'
 
   disable_http_cluster_management:
     kind: ansible
@@ -1278,7 +1278,7 @@ grains:
           - ontap_hostname: '{{ .inputs.ontap_hostname }}'
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
-          - prior_config: '{% if .grains.disable_http_cluster_management.outputs.prior_config %}{{ .grains.disable_http_cluster_management.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.disable_http_cluster_management.outputs.prior_config }}'
 
   configure_ifgrp:
     kind: ansible
@@ -1313,7 +1313,7 @@ grains:
           - ontap_password: '{{ .inputs.ontap_password }}'
           - node_specs: '{{ .inputs.node_specs }}'
           - ifgrp_name: '{{ .inputs.ifgrp_name }}'
-          - prior_config: '{% if .grains.configure_ifgrp.outputs.prior_config %}{{ .grains.configure_ifgrp.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_ifgrp.outputs.prior_config }}'
 
   configure_ipspace:
     kind: ansible
@@ -1345,7 +1345,7 @@ grains:
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
           - ipspace_name: '{{ .inputs.ipspace_name }}'
-          - prior_config: '{% if .grains.configure_ipspace.outputs.prior_config %}{{ .grains.configure_ipspace.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_ipspace.outputs.prior_config }}'
 
   configure_broadcast_domains:
     kind: ansible
@@ -1385,7 +1385,7 @@ grains:
           - nfs_vlan_name: '{{ .inputs.nfs_vlan_name }}'
           - iscsi_a_vlan_name: '{{ .inputs.iscsi_a_vlan_name }}'
           - iscsi_b_vlan_name: '{{ .inputs.iscsi_b_vlan_name }}'
-          - prior_config: '{% if .grains.configure_broadcast_domains.outputs.prior_config %}{{ .grains.configure_broadcast_domains.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_broadcast_domains.outputs.prior_config }}'
 
   configure_vlan_interfaces:
     kind: ansible
@@ -1436,7 +1436,7 @@ grains:
           - iscsi_a_vlan_id: '{{ .inputs.iscsi_a_vlan_id }}'
           - iscsi_b_vlan_name: '{{ .inputs.iscsi_b_vlan_name }}'
           - iscsi_b_vlan_id: '{{ .inputs.iscsi_b_vlan_id }}'
-          - prior_config: '{% if .grains.configure_vlan_interfaces.outputs.prior_config %}{{ .grains.configure_vlan_interfaces.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_vlan_interfaces.outputs.prior_config }}'
 
   configure_ontap_svm:
     kind: ansible
@@ -1472,7 +1472,7 @@ grains:
           - ontap_password: '{{ .inputs.ontap_password }}'
           - svm_name: '{{ .inputs.svm_name }}'
           - ipspace_name: '{{ .inputs.ipspace_name }}'
-          - prior_config: '{% if .grains.configure_ontap_svm.outputs.prior_config %}{{ .grains.configure_ontap_svm.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_ontap_svm.outputs.prior_config }}'
 
   configure_svm_load_sharing_snapmirror:
     kind: ansible
@@ -1511,7 +1511,7 @@ grains:
           - ontap_password: '{{ .inputs.ontap_password }}'
           - svm_name: '{{ .inputs.svm_name }}'
           - job_name: '{{ .inputs.job_name }}'
-          - prior_config: '{% if .grains.configure_svm_load_sharing_snapmirror.outputs.prior_config %}{{ .grains.configure_svm_load_sharing_snapmirror.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_svm_load_sharing_snapmirror.outputs.prior_config }}'
 
   configure_svm_vsadmin:
     kind: ansible
@@ -1562,7 +1562,7 @@ grains:
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
           - svm_name: '{{ .inputs.svm_name }}'
-          - prior_config: '{% if .grains.configure_svm_login_banner.outputs.prior_config %}{{ .grains.configure_svm_login_banner.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_svm_login_banner.outputs.prior_config }}'
 
   configure_svm_mgmt_lif:
     kind: ansible
@@ -1602,7 +1602,7 @@ grains:
           - ontap_password: '{{ .inputs.ontap_password }}'
           - svm_name: '{{ .inputs.svm_name }}'
           - svm_mgmt_lif_name: '{{ .inputs.svm_mgmt_lif_name }}'
-          - prior_config: '{% if .grains.configure_svm_mgmt_lif.outputs.prior_config %}{{ .grains.configure_svm_mgmt_lif.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_svm_mgmt_lif.outputs.prior_config }}'
 
   configure_svm_default_route:
     kind: ansible
@@ -1637,7 +1637,7 @@ grains:
           - ontap_password: '{{ .inputs.ontap_password }}'
           - svm_name: '{{ .inputs.svm_name }}'
           - svm_mgmt_lif_gateway: '{{ .inputs.svm_mgmt_lif_gateway }}'
-          - prior_config: '{% if .grains.configure_svm_default_route.outputs.prior_config %}{{ .grains.configure_svm_default_route.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_svm_default_route.outputs.prior_config }}'
 
   configure_svm_dns:
     kind: ansible
@@ -1671,7 +1671,7 @@ grains:
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
           - svm_name: '{{ .inputs.svm_name }}'
-          - prior_config: '{% if .grains.configure_svm_dns.outputs.prior_config %}{{ .grains.configure_svm_dns.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_svm_dns.outputs.prior_config }}'
 
   configure_nfs_export_policy:
     kind: ansible
@@ -1705,7 +1705,7 @@ grains:
           - ontap_username: '{{ .inputs.ontap_username }}'
           - ontap_password: '{{ .inputs.ontap_password }}'
           - svm_name: '{{ .inputs.svm_name }}'
-          - prior_config: '{% if .grains.configure_nfs_export_policy.outputs.prior_config %}{{ .grains.configure_nfs_export_policy.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_nfs_export_policy.outputs.prior_config }}'
 
   configure_svm_audit_log:
     kind: ansible
@@ -1742,7 +1742,7 @@ grains:
           - ontap_password: '{{ .inputs.ontap_password }}'
           - svm_name: '{{ .inputs.svm_name }}'
           - audit_log_volume_name: '{{ .inputs.audit_log_volume_name }}'
-          - prior_config: '{% if .grains.configure_svm_audit_log.outputs.prior_config %}{{ .grains.configure_svm_audit_log.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_svm_audit_log.outputs.prior_config }}'
 
   configure_nfs_lif:
     kind: ansible
@@ -1780,7 +1780,7 @@ grains:
           - svm_name: '{{ .inputs.svm_name }}'
           - node_specs: '{{ .inputs.node_specs }}'
           - allowed_protocols: '{{ .inputs.allowed_protocols }}'
-          - prior_config: '{% if .grains.configure_nfs_lif.outputs.prior_config %}{{ .grains.configure_nfs_lif.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_nfs_lif.outputs.prior_config }}'
 
   configure_iscsi_lif:
     kind: ansible
@@ -1819,7 +1819,7 @@ grains:
           - svm_name: '{{ .inputs.svm_name }}'
           - node_specs: '{{ .inputs.node_specs }}'
           - allowed_protocols: '{{ .inputs.allowed_protocols }}'
-          - prior_config: '{% if .grains.configure_iscsi_lif.outputs.prior_config %}{{ .grains.configure_iscsi_lif.outputs.prior_config }}{% endif %}'
+          - prior_config: '{{ .grains.configure_iscsi_lif.outputs.prior_config }}'
 
   post_config_validation:
     kind: ansible

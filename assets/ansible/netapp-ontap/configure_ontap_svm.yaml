@@ -24,7 +24,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
     node_rows: >-
@@ -91,8 +100,10 @@
         - not (incoming_prior.changed | default(false) | bool)
 
     - name: Stop when the SVM name is blank
-      ansible.builtin.meta: end_play
       when: svm_name_normalized | length == 0
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Normalize node rows
       ansible.builtin.set_fact:

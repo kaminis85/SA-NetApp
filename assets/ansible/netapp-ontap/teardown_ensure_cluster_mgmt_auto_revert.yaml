@@ -14,7 +14,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
 
@@ -39,8 +48,10 @@
       when: not (incoming_prior.changed | default(false) | bool)
 
     - name: Stop when auto-revert was not changed
-      ansible.builtin.meta: end_play
       when: not (incoming_prior.changed | default(false) | bool)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Select interfaces where this deployment enabled auto-revert
       ansible.builtin.set_fact:
@@ -56,8 +67,10 @@
       when: interfaces_to_restore | default([]) | length == 0
 
     - name: Stop when no interface needs auto-revert restored
-      ansible.builtin.meta: end_play
       when: interfaces_to_restore | default([]) | length == 0
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Read auto-revert
       netapp.ontap.na_ontap_rest_cli:
@@ -110,8 +123,10 @@
       when: interfaces_still_enabled | default([]) | length == 0
 
     - name: Stop when those interfaces are no longer enabled
-      ansible.builtin.meta: end_play
       when: interfaces_still_enabled | default([]) | length == 0
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Restore auto-revert
       netapp.ontap.na_ontap_interface:

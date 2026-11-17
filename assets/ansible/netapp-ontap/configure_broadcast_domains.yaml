@@ -23,7 +23,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
     network_inputs:
@@ -96,8 +105,10 @@
         - not (incoming_prior.changed | default(false) | bool)
 
     - name: Stop when no VLAN was requested
-      ansible.builtin.meta: end_play
       when: vlan_plan | length == 0
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Validate the IPspace name
       ansible.builtin.assert:

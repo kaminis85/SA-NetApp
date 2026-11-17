@@ -40,7 +40,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
 
@@ -85,8 +94,10 @@
               - not (incoming_prior.changed | default(false) | bool)
 
           - name: Skip the play when iSCSI is not selected
-            ansible.builtin.meta: end_play
             when: "'iscsi' not in protocol_list"
+            block:
+              - name: Stop the play
+                ansible.builtin.meta: end_play
 
       - name: Normalize node rows
         ansible.builtin.set_fact:

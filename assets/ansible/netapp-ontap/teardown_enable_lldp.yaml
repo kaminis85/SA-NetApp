@@ -14,7 +14,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
 
@@ -37,8 +46,10 @@
       when: not (incoming_prior.changed | default(false) | bool)
 
     - name: Stop when LLDP was not changed
-      ansible.builtin.meta: end_play
       when: not (incoming_prior.changed | default(false) | bool)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     # option-value is not a CLI key, so a private CLI GET omits it unless fields asks for it.
     - name: Read LLDP
@@ -83,8 +94,10 @@
       when: live_value != (incoming_prior.applied | string)
 
     - name: Stop when LLDP was changed after the launch
-      ansible.builtin.meta: end_play
       when: live_value != (incoming_prior.applied | string)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Confirm the recorded LLDP value can be restored
       ansible.builtin.assert:

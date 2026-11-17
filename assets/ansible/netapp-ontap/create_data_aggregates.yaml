@@ -17,7 +17,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
 
@@ -72,8 +81,10 @@
         - not (incoming_prior.changed | default(false) | bool)
 
     - name: Stop when no aggregate was requested
-      ansible.builtin.meta: end_play
       when: aggregate_plan | default([]) | length == 0
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Validate node names
       ansible.builtin.assert:

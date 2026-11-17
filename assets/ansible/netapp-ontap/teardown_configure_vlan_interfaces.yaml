@@ -36,7 +36,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
     network_inputs:
@@ -74,10 +83,12 @@
         or (incoming_prior.added | default([]) | length == 0)
 
     - name: Stop when this deployment did not create a VLAN interface
-      ansible.builtin.meta: end_play
       when: >-
         not (incoming_prior.changed | default(false) | bool)
         or (incoming_prior.added | default([]) | length == 0)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Use the VLAN interfaces this deployment created
       ansible.builtin.set_fact:
@@ -96,10 +107,12 @@
         and (incoming_prior.added | default([]) | length == 0)
 
     - name: Stop when no VLAN was requested
-      ansible.builtin.meta: end_play
       when: >-
         (vlan_plan | length == 0 or ifgrp_name_normalized | length == 0)
         and (incoming_prior.added | default([]) | length == 0)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Normalize node rows
       ansible.builtin.set_fact:
@@ -136,10 +149,12 @@
         and (incoming_prior.added | default([]) | length == 0)
 
     - name: Stop when no node lists data ports
-      ansible.builtin.meta: end_play
       when: >-
         port_plan | default([]) | length == 0
         and (incoming_prior.added | default([]) | length == 0)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Validate VLAN IDs
       ansible.builtin.assert:

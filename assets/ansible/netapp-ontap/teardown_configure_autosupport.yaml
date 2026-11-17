@@ -30,7 +30,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
 
@@ -53,8 +62,10 @@
       when: not (incoming_prior.changed | default(false) | bool)
 
     - name: Stop when AutoSupport was not changed
-      ansible.builtin.meta: end_play
       when: not (incoming_prior.changed | default(false) | bool)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Read AutoSupport
       netapp.ontap.na_ontap_rest_info:
@@ -121,8 +132,10 @@
       when: nodes_to_restore | default([]) | length == 0
 
     - name: Stop when AutoSupport no longer matches
-      ansible.builtin.meta: end_play
       when: nodes_to_restore | default([]) | length == 0
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Restore AutoSupport
       netapp.ontap.na_ontap_autosupport:

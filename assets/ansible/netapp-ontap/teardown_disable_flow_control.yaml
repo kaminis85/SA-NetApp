@@ -14,7 +14,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
 
@@ -37,8 +46,10 @@
       when: not (incoming_prior.changed | default(false) | bool)
 
     - name: Stop when flow control was not changed
-      ansible.builtin.meta: end_play
       when: not (incoming_prior.changed | default(false) | bool)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Select ports whose flow control this deployment changed
       ansible.builtin.set_fact:
@@ -54,8 +65,10 @@
       when: ports_to_restore | default([]) | length == 0
 
     - name: Stop when no port needs flow control restored
-      ansible.builtin.meta: end_play
       when: ports_to_restore | default([]) | length == 0
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Read port flow control
       netapp.ontap.na_ontap_rest_cli:
@@ -106,8 +119,10 @@
       when: ports_still_none | default([]) | length == 0
 
     - name: Stop when those ports no longer have flow control set to none
-      ansible.builtin.meta: end_play
       when: ports_still_none | default([]) | length == 0
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Restore flow control
       netapp.ontap.na_ontap_rest_cli:

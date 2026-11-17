@@ -15,7 +15,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
 
@@ -38,8 +47,10 @@
       when: not (incoming_prior.changed | default(false) | bool)
 
     - name: Stop when storage failover was not changed
-      ansible.builtin.meta: end_play
       when: not (incoming_prior.changed | default(false) | bool)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Select nodes where this deployment enabled storage failover
       ansible.builtin.set_fact:
@@ -55,8 +66,10 @@
       when: nodes_to_restore | default([]) | length == 0
 
     - name: Stop when no node needs storage failover restored
-      ansible.builtin.meta: end_play
       when: nodes_to_restore | default([]) | length == 0
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Read storage failover
       netapp.ontap.na_ontap_rest_cli:
@@ -102,8 +115,10 @@
       when: nodes_still_enabled | default([]) | length == 0
 
     - name: Stop when those nodes are no longer enabled
-      ansible.builtin.meta: end_play
       when: nodes_still_enabled | default([]) | length == 0
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Disable storage failover on nodes this deployment enabled
       netapp.ontap.na_ontap_rest_cli:

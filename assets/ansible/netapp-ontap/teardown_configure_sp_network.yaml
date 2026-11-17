@@ -14,7 +14,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
 
@@ -39,8 +48,10 @@
       when: not (incoming_prior.changed | default(false) | bool)
 
     - name: Stop when the service processor was not changed
-      ansible.builtin.meta: end_play
       when: not (incoming_prior.changed | default(false) | bool)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Read the service-processor network
       netapp.ontap.na_ontap_rest_cli:
@@ -110,8 +121,10 @@
       when: nodes_to_restore | default([]) | length == 0
 
     - name: Stop when no service-processor address still matches
-      ansible.builtin.meta: end_play
       when: nodes_to_restore | default([]) | length == 0
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Restore the service-processor network
       netapp.ontap.na_ontap_rest_cli:

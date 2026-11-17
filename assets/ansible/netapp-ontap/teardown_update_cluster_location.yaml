@@ -14,7 +14,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
 
@@ -37,8 +46,10 @@
       when: not (incoming_prior.changed | default(false) | bool)
 
     - name: Stop when the location was not changed
-      ansible.builtin.meta: end_play
       when: not (incoming_prior.changed | default(false) | bool)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Read the cluster
       netapp.ontap.na_ontap_rest_info:
@@ -92,8 +103,10 @@
       when: not (restore_name | bool) and not (restore_location | bool)
 
     - name: Stop when nothing from this deployment is still in place
-      ansible.builtin.meta: end_play
       when: not (restore_name | bool) and not (restore_location | bool)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Restore the cluster name and location
       netapp.ontap.na_ontap_cluster:

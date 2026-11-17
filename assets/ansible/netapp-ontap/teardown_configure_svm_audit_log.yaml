@@ -40,7 +40,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
 
@@ -65,10 +74,12 @@
         or (incoming_prior.added | default([]) | length == 0)
 
     - name: Stop when this deployment did not create the audit log
-      ansible.builtin.meta: end_play
       when: >-
         not (incoming_prior.changed | default(false) | bool)
         or (incoming_prior.added | default([]) | length == 0)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Use the audit objects this deployment created
       ansible.builtin.set_fact:
@@ -97,8 +108,10 @@
       when: svm_name_normalized | length == 0
 
     - name: Stop when the SVM name is blank
-      ansible.builtin.meta: end_play
       when: svm_name_normalized | length == 0
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Validate the SVM name
       ansible.builtin.assert:
@@ -158,8 +171,10 @@
       when: not (svm_is_present | bool)
 
     - name: Stop when the SVM is already gone
-      ansible.builtin.meta: end_play
       when: not (svm_is_present | bool)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Delete SVM auditing
       netapp.ontap.na_ontap_vserver_audit:
@@ -189,8 +204,10 @@
       when: created_volume_name | length == 0
 
     - name: Stop when this deployment did not create the audit log volume
-      ansible.builtin.meta: end_play
       when: created_volume_name | length == 0
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Delete the audit log volume
       netapp.ontap.na_ontap_volume:

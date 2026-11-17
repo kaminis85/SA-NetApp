@@ -14,7 +14,16 @@
         else (
           prior_config
           if prior_config is mapping
-          else (prior_config | string | trim)
+          else (
+            prior_config | string | trim
+            | replace('&quot;', '"')
+            | replace('&#34;', '"')
+            | replace('&amp;', '&')
+            | replace('&#39;', "'")
+            | replace('&apos;', "'")
+            | replace('&lt;', '<')
+            | replace('&gt;', '>')
+          )
         )
       }}
 
@@ -37,8 +46,10 @@
       when: not (incoming_prior.changed | default(false) | bool)
 
     - name: Stop when cluster HA was not changed
-      ansible.builtin.meta: end_play
       when: not (incoming_prior.changed | default(false) | bool)
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Discover ONTAP cluster nodes
       netapp.ontap.na_ontap_rest_info:
@@ -73,8 +84,10 @@
       when: node_count | int != 2
 
     - name: Stop unless this is a two-node cluster
-      ansible.builtin.meta: end_play
       when: node_count | int != 2
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Read cluster HA
       netapp.ontap.na_ontap_rest_cli:
@@ -126,10 +139,12 @@
         or (incoming_prior.previous | string) != 'false'
 
     - name: Stop when cluster HA should stay as it is
-      ansible.builtin.meta: end_play
       when: >-
         live_value != (incoming_prior.applied | string)
         or (incoming_prior.previous | string) != 'false'
+      block:
+        - name: Stop the play
+          ansible.builtin.meta: end_play
 
     - name: Disable cluster HA
       netapp.ontap.na_ontap_cluster_ha:
