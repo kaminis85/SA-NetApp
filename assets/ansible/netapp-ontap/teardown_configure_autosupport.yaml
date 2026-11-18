@@ -153,8 +153,9 @@
         - name: Stop the play
           ansible.builtin.meta: end_play
 
-    # na_ontap_autosupport requires a node name. On current ONTAP the modify
-    # applies to the whole cluster; the loop covers a node-scoped release.
+    # na_ontap_autosupport requires node_name, but ONTAP applies AutoSupport
+    # changes to the whole cluster. The loop writes the same settings once per
+    # node; the module skips nodes that already match.
     - name: Restore AutoSupport day-0 defaults
       netapp.ontap.na_ontap_autosupport:
         state: present
