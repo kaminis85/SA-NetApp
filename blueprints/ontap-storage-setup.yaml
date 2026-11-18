@@ -1645,3 +1645,4 @@ grains:
         - ontap_username: '{{ .inputs.ontap_username }}'
         - ontap_password: '{{ .inputs.ontap_password }}'
         - autosupport_message: '{{ .inputs.autosupport_message }}'
+        - ifgrp_name: '{{ .inputs.ifgrp_name }}'
