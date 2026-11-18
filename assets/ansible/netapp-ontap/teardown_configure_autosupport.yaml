@@ -1,7 +1,9 @@
 ---
-# Undo of configure_autosupport.yaml: remove AutoSupport on nodes whose mail
-# hosts, from address, and to addresses still match the form. Safe to run twice.
-- name: Remove ONTAP AutoSupport mail settings
+# Undo of configure_autosupport.yaml: put AutoSupport back to the ONTAP day-0
+# defaults on nodes whose mail hosts, from address, and to addresses still
+# match the form. Day-0 is mail host "mailhost", from "Postmaster", and no to
+# addresses. AutoSupport stays enabled. Safe to run twice.
+- name: Restore ONTAP AutoSupport day-0 defaults
   hosts: localhost
   connection: local
   gather_facts: false
@@ -116,14 +118,19 @@
         - name: Stop the play
           ansible.builtin.meta: end_play
 
-    - name: Remove AutoSupport on the matching nodes
+    - name: Restore AutoSupport day-0 defaults on the matching nodes
       netapp.ontap.na_ontap_autosupport:
-        state: absent
+        state: present
         node_name: "{{ item }}"
+        mail_hosts:
+          - mailhost
+        from_address: Postmaster
+        to_addresses: []
+        proxy_url: "{{ '' if (autosupport_proxy_url | default('') | string | trim | length > 0) else omit }}"
       loop: "{{ nodes_to_clear }}"
       loop_control:
         label: "{{ item }}"
 
     - name: Report the nodes
       ansible.builtin.debug:
-        msg: "Removed AutoSupport mail settings on {{ nodes_to_clear | join(', ') }}."
+        msg: "Restored AutoSupport to the ONTAP day-0 defaults (mail host mailhost, from Postmaster, and no to addresses) on {{ nodes_to_clear | join(', ') }}. AutoSupport stays enabled."

@@ -72,7 +72,7 @@ Each row shows what End does for that task. Every teardown can run again safely.
 | Create data aggregates | Deletes the data aggregates named in the node rows after the volumes on them are gone. Root aggregates (`aggr0` and `aggr0_*`) are never deleted |
 | Configure DNS | Removes cluster DNS when the DNS servers and domain still match the form |
 | Configure NTP | Deletes the NTP servers named on the form that are still present |
-| Configure AutoSupport | Removes the AutoSupport mail settings on the nodes where the mail hosts, from address, and to addresses still match the form |
+| Configure AutoSupport | Restores the ONTAP day-0 AutoSupport defaults on the nodes where the mail hosts, from address, and to addresses still match the form. Day-0 is mail host `mailhost`, from `Postmaster`, and no to addresses. AutoSupport stays enabled. A proxy URL entered on the form is cleared |
 | Configure FIPS | When the dropdown is true and the cluster still has FIPS enabled, sets SSL FIPS mode to false. When the dropdown is false, End leaves FIPS unchanged |
 | Configure SNMP | Removes the SNMP community, SNMPv3 user, and traphost named on the form, and clears the contact and location when they were set |
 | Create login banner | Clears the cluster login banner when it still matches the form |

@@ -964,7 +964,9 @@ grains:
         - autosupport_from_address: '{{ .inputs.autosupport_from_address }}'
         - autosupport_to_addresses: '{{ .inputs.autosupport_to_addresses }}'
         - autosupport_proxy_url: '{{ .inputs.autosupport_proxy_url }}'
-      # Runs when the deployment is ended. Removes AutoSupport mail settings that still match the form.
+      # Runs when the deployment is ended. Restores ONTAP day-0 AutoSupport defaults
+      # (mail host mailhost, from Postmaster, empty to list) when those fields still match the form.
+      # AutoSupport stays enabled. A proxy URL from the form is cleared.
       on-destroy:
         source:
           store: SA-NetApp
