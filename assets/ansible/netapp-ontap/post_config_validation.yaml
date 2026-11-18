@@ -1,4 +1,8 @@
 ---
+# Creating the interface group makes ONTAP add Default-1 and Default-2 again.
+# This is the same cleanup that already ran before the interface group existed.
+- ansible.builtin.import_playbook: delete_default_broadcast_domains.yaml
+
 - name: Post Config Validation Tasks
   hosts: localhost
   connection: local

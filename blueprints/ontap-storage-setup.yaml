@@ -1633,7 +1633,7 @@ grains:
   post_config_validation:
     kind: ansible
     when: '{% if .inputs.ontap_hostname != "" and .inputs.ontap_username != "" and .inputs.ontap_password != "" and .inputs.autosupport_message != "" %}true{% else %}false{% endif %}'
-    depends-on: pre_validation, update_cluster_location, ensure_cluster_mgmt_auto_revert, configure_sp_network, zero_spare_disks, ensure_cluster_ha, disable_flow_control, enable_cdp, enable_lldp, configure_dns, configure_ntp, enable_storage_failover, set_timezone, configure_autosupport, configure_fips, configure_snmp, create_login_banner, disable_http_cluster_management, configure_svm_load_sharing_snapmirror, configure_svm_vsadmin, configure_svm_login_banner, configure_svm_dns, configure_nfs_export_policy, configure_svm_audit_log, configure_nfs_lif, configure_iscsi_lif
+    depends-on: pre_validation, update_cluster_location, ensure_cluster_mgmt_auto_revert, configure_sp_network, zero_spare_disks, ensure_cluster_ha, disable_flow_control, enable_cdp, enable_lldp, configure_dns, configure_ntp, enable_storage_failover, set_timezone, configure_autosupport, configure_fips, configure_snmp, create_login_banner, disable_http_cluster_management, configure_ifgrp, configure_vlan_interfaces, configure_svm_load_sharing_snapmirror, configure_svm_vsadmin, configure_svm_login_banner, configure_svm_dns, configure_nfs_export_policy, configure_svm_audit_log, configure_nfs_lif, configure_iscsi_lif
     spec:
       source:
         store: SA-NetApp
