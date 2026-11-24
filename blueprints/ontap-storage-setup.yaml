@@ -8,7 +8,7 @@ description: >-
 
 instructions:
   source:
-    store: SA-NetApp
+    store: Stack-Automation-NetApp
     path: instructions/ontap-storage-setup.md
 
 metadata:
@@ -641,7 +641,7 @@ grains:
     when: '{% if .inputs.ontap_hostname != "" and .inputs.ontap_username != "" and .inputs.ontap_password != "" %}true{% else %}false{% endif %}'
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/pre_validation.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -656,7 +656,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/update_cluster_location.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -669,7 +669,7 @@ grains:
       # Runs when the deployment is ended. Clears the cluster location when it still matches the form.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_update_cluster_location.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -685,7 +685,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/ensure_cluster_mgmt_auto_revert.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -699,7 +699,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/delete_default_broadcast_domains.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -714,7 +714,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_sp_network.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -726,7 +726,7 @@ grains:
       # Runs when the deployment is ended. Sets a service-processor interface that still has the address from the form back to DHCP.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_sp_network.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -742,7 +742,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/discover_disk_class.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -760,7 +760,7 @@ grains:
     depends-on: discover_disk_class
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/create_data_aggregates.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -775,7 +775,7 @@ grains:
       # Runs when the deployment is ended, after the SVM and its volumes are gone.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_create_data_aggregates.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -790,7 +790,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/zero_spare_disks.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -804,7 +804,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/ensure_cluster_ha.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -819,7 +819,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/disable_flow_control.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -834,7 +834,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/enable_cdp.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -848,7 +848,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/enable_lldp.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -863,7 +863,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_dns.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -876,7 +876,7 @@ grains:
       # Runs when the deployment is ended. Removes cluster DNS when it still matches the form.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_dns.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -893,7 +893,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_ntp.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -905,7 +905,7 @@ grains:
       # Runs when the deployment is ended. Deletes the NTP servers named on the form.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_ntp.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -920,7 +920,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/enable_storage_failover.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -935,7 +935,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/set_timezone.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -952,7 +952,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_autosupport.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -969,7 +969,7 @@ grains:
       # AutoSupport stays enabled. A proxy URL from the form is cleared.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_autosupport.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -988,7 +988,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/add_licenses.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1004,7 +1004,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_fips.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1018,7 +1018,7 @@ grains:
       on-destroy:
         when: '{% if .inputs.is_fips_enabled == "true" %}true{% else %}false{% endif %}'
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_fips.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1034,7 +1034,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_snmp.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1057,7 +1057,7 @@ grains:
       # Runs when the deployment is ended. Removes the SNMP users, traphost, contact, and location named on the form, sets the SNMP init value to 0, and disables SNMP.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_snmp.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1084,7 +1084,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/create_login_banner.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1096,7 +1096,7 @@ grains:
       # Runs when the deployment is ended. Clears the cluster login banner when it still matches the form.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_create_login_banner.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1112,7 +1112,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/disable_http_cluster_management.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1128,7 +1128,7 @@ grains:
     depends-on: delete_default_broadcast_domains
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_ifgrp.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1142,7 +1142,7 @@ grains:
       # Runs when the deployment is ended, after the VLAN interfaces are gone.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_ifgrp.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1160,7 +1160,7 @@ grains:
     depends-on: pre_validation
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_ipspace.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1172,7 +1172,7 @@ grains:
       # Runs when the deployment is ended: deletes this IPspace.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_ipspace.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1188,7 +1188,7 @@ grains:
     depends-on: configure_ipspace
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_broadcast_domains.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1204,7 +1204,7 @@ grains:
       # Runs when the deployment is ended, after the VLAN interfaces are gone.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_broadcast_domains.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1224,7 +1224,7 @@ grains:
     depends-on: configure_broadcast_domains, configure_ifgrp
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_vlan_interfaces.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1246,7 +1246,7 @@ grains:
       # Runs when the deployment is ended, after the LIFs are gone.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_vlan_interfaces.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1272,7 +1272,7 @@ grains:
     depends-on: create_data_aggregates, configure_ipspace, add_licenses
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_ontap_svm.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1287,7 +1287,7 @@ grains:
       # Runs when the deployment is ended, after LIFs, volumes, and SnapMirror are gone.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_ontap_svm.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1306,7 +1306,7 @@ grains:
     depends-on: configure_ontap_svm
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_svm_load_sharing_snapmirror.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1321,7 +1321,7 @@ grains:
       # Runs when the deployment is ended, before the SVM and the aggregates are deleted.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_svm_load_sharing_snapmirror.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1340,7 +1340,7 @@ grains:
     depends-on: configure_ontap_svm
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_svm_vsadmin.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1357,7 +1357,7 @@ grains:
     depends-on: configure_ontap_svm
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_svm_login_banner.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1371,7 +1371,7 @@ grains:
       # Clears the SVM login banner when it still matches the form.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_svm_login_banner.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1388,7 +1388,7 @@ grains:
     depends-on: configure_ontap_svm, configure_vlan_interfaces
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_svm_mgmt_lif.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1407,7 +1407,7 @@ grains:
       # Runs when the deployment is ended, after the default route is gone.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_svm_mgmt_lif.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1430,7 +1430,7 @@ grains:
     depends-on: configure_svm_mgmt_lif
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_svm_default_route.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1444,7 +1444,7 @@ grains:
       # Runs when the deployment is ended, after SVM DNS is gone.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_svm_default_route.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1462,7 +1462,7 @@ grains:
     depends-on: configure_svm_default_route
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_svm_dns.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1476,7 +1476,7 @@ grains:
       # Runs when the deployment is ended, before the default route is deleted.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_svm_dns.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1494,7 +1494,7 @@ grains:
     depends-on: configure_ontap_svm
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_nfs_export_policy.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1508,7 +1508,7 @@ grains:
       # Runs when the deployment is ended, before the SVM is deleted.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_nfs_export_policy.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1526,7 +1526,7 @@ grains:
     depends-on: configure_ontap_svm
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_svm_audit_log.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1542,7 +1542,7 @@ grains:
       # Runs when the deployment is ended, before the SVM and the aggregates are deleted. Not ordered against load-sharing SnapMirror.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_svm_audit_log.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1562,7 +1562,7 @@ grains:
     depends-on: configure_ontap_svm, configure_vlan_interfaces
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_nfs_lif.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1578,7 +1578,7 @@ grains:
       # Runs when the deployment is ended, before the SVM and the VLAN interfaces are deleted.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_nfs_lif.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1598,7 +1598,7 @@ grains:
     depends-on: configure_ontap_svm, configure_vlan_interfaces
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/configure_iscsi_lif.yaml
       agent:
         name: '{{ .inputs.agent }}'
@@ -1615,7 +1615,7 @@ grains:
       # Runs when the deployment is ended, before the SVM and the VLAN interfaces are deleted.
       on-destroy:
         source:
-          store: SA-NetApp
+          store: Stack-Automation-NetApp
           path: assets/ansible/netapp-ontap/teardown_configure_iscsi_lif.yaml
         agent:
           name: '{{ .inputs.agent }}'
@@ -1636,7 +1636,7 @@ grains:
     depends-on: pre_validation, update_cluster_location, ensure_cluster_mgmt_auto_revert, configure_sp_network, zero_spare_disks, ensure_cluster_ha, disable_flow_control, enable_cdp, enable_lldp, configure_dns, configure_ntp, enable_storage_failover, set_timezone, configure_autosupport, configure_fips, configure_snmp, create_login_banner, disable_http_cluster_management, configure_ifgrp, configure_vlan_interfaces, configure_svm_load_sharing_snapmirror, configure_svm_vsadmin, configure_svm_login_banner, configure_svm_dns, configure_nfs_export_policy, configure_svm_audit_log, configure_nfs_lif, configure_iscsi_lif
     spec:
       source:
-        store: SA-NetApp
+        store: Stack-Automation-NetApp
         path: assets/ansible/netapp-ontap/post_config_validation.yaml
       agent:
         name: '{{ .inputs.agent }}'
